@@ -4,7 +4,7 @@
 for short): a receiver and measurement program operated like a measuring
 instrument, based on [SDR++](https://github.com/AlexandreRouma/SDRPlusPlus)
 and the [SDR++Brown](https://github.com/sannysanoff/SDRPlusPlusBrown) fork,
-extended for amateur radio TETRA cells by UnImAtrIXzEr0.
+extended for amateur radio TETRA cells by Dennis, DB2OE.
 
 > **Experimental beta.** Not an official release of SDR++ or SDR++Brown and
 > not endorsed by their authors. Please report problems with this edition

@@ -48,7 +48,7 @@ with sync_playwright() as p:
         for f in (f"cover_{lang}.pdf", f"body_{lang}.pdf"):
             for page in PdfReader(str(tmp / f)).pages:
                 w.add_page(page)
-        w.add_metadata({"/Title": c["title"], "/Author": "UnImAtrIXzEr0", "/Subject": c["subject"], "/Creator": "UnImAtrIXzEr0"})
+        w.add_metadata({"/Title": c["title"], "/Author": "Dennis, DB2OE", "/Subject": c["subject"], "/Creator": "UnImAtrIXzEr0"})
         out = outdir / c["out"]
         with open(out, "wb") as fh:
             w.write(fh)

@@ -33,7 +33,7 @@ namespace credits {
         ImGui::Text("Version %s  -  experimental beta for amateur radio TETRA", EDITION_VERSION);
         ImGui::Spacing();
         ImGui::TextUnformatted("A modified version (fork) of SDR++ by Alexandre Rouma (ON5RYZ),");
-        ImGui::TextUnformatted("revised and extended for amateur radio TETRA by UnImAtrIXzEr0.");
+        ImGui::TextUnformatted("revised and extended for amateur radio TETRA by Dennis, DB2OE.");
         ImGui::TextDisabled("Not an official release of SDR++ or SDR++Brown and not endorsed by their authors.");
         ImGui::TextDisabled("Please report problems with this edition only at github.com/UnImAtrIXzEr0/sdrpp-air-interface-analyzer/issues");
         ImGui::EndGroup();
