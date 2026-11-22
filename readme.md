@@ -20,9 +20,9 @@ extended for amateur radio TETRA cells by Dennis, DB2OE.
 [![Build](https://img.shields.io/github/actions/workflow/status/UnImAtrIXzEr0/sdrpp-air-interface-analyzer/build_tetra_custom.yml?branch=main&style=for-the-badge)](https://github.com/UnImAtrIXzEr0/sdrpp-air-interface-analyzer/actions)
 [![Licence GPL-3.0](https://img.shields.io/badge/licence-GPL--3.0-blue?style=for-the-badge)](license)
 
-![Classic layout with a tile column: spectrum and waterfall, constellation, measurements and trends, stations below](docs/readme/overview_tiles.png)
+![Instrument view, mode Measure: status bar, measured values with ETSI limits and mini trends on the left, spectrum and waterfall in the middle, softkeys on the right](docs/readme/overview.png)
 
-*All pictures show the synthetic test cell of this repository (MCC 901, MNC 9999) – no real network. They were taken in the classic layout; the manuals show the instrument view.*
+*All pictures show the synthetic test cell of this repository (MCC 901, MNC 9999) – no real network.*
 
 ## The user interface
 
@@ -71,13 +71,13 @@ One surface, like a measuring instrument (the **instrument view**, standard):
   calibration, snap to carrier, lock VFO.
 - **No decryption.** Encrypted traffic stays encrypted.
 
-| Constellation | TX analysis | Burst analysis |
+| Constellation | TX spectrum (ACP) | Burst analysis (uplink) |
 |---|---|---|
-| ![Constellation](docs/readme/win_const.png) | ![TX analysis](docs/readme/win_txa.png) | ![Burst analysis](docs/readme/win_bursts.png) |
+| ![Constellation](docs/readme/constellation.png) | ![TX spectrum (ACP)](docs/readme/tx_spectrum.png) | ![Burst analysis](docs/readme/burst.png) |
 
-| Network & cell | Trends | Coverage map (HTML export) |
+| Network & cell | Trends | Map of the drive |
 |---|---|---|
-| ![Network](docs/readme/win_network.png) | ![Trends](docs/readme/win_trends.png) | ![Map](docs/readme/map_level.png) |
+| ![Network](docs/readme/network.png) | ![Trends](docs/readme/trends.png) | ![Map of the drive](docs/readme/drive_map.png) |
 
 ## Drive test and maps
 
