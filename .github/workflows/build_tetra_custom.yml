@@ -482,7 +482,7 @@ jobs:
             cp dl/*manuals_pdf/*.pdf rel/ 2>/dev/null || echo "::warning::no manuals in this run"
             (cd rel && sha256sum * > SHA256SUMS.txt)
             ls -la rel
-            NOTES="SDR++ Air Interface Analyzer (formerly SDR++ TETRA-SCHWARTZ) - experimental beta for amateur radio TETRA. Settings of the former version are taken over automatically on the first start. Windows: unpack the zip and start sdrpp.exe. Linux: chmod +x the AppImage and start it. Manuals (German / English) as PDF. Changes: see the commit history. Check the downloads with SHA256SUMS.txt."
+            NOTES="SDR++ Air Interface Analyzer (formerly SDR++ TETRA-SCHWARTZ) - experimental beta for amateur radio TETRA. Settings of the former version are taken over automatically on the first start. Windows: unpack the zip and start sdrpp.exe. Linux: chmod +x the AppImage and start it; it needs glibc 2.38 or newer and libstdc++ from GCC 13.2 or newer (e.g. Ubuntu 24.04, Debian 13, Linux Mint 22), so it does not run on Ubuntu 22.04, Debian 12 or Linux Mint 21. Manuals (German / English) as PDF. Changes: see the commit history. Check the downloads with SHA256SUMS.txt."
             # a rebuild of the same version replaces its release (tag on the newest commit)
             if gh release view "$V" > /dev/null 2>&1; then gh release delete "$V" --cleanup-tag -y; fi
             gh release create "$V" rel/* --target "$GITHUB_SHA" --title "SDR++ Air Interface Analyzer $V" --notes "$NOTES" --latest

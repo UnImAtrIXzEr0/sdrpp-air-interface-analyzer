@@ -134,6 +134,10 @@ On the [**Releases page**](https://github.com/UnImAtrIXzEr0/sdrpp-air-interface-
 | `…_User_Manual_….pdf` | Manual, English |
 | `SHA256SUMS.txt` | Checksums of the downloads |
 
+**Linux:** The AppImage requires glibc 2.38 or newer and libstdc++ from GCC 13.2
+or newer (e.g. Ubuntu 24.04, Debian 13, Linux Mint 22). It does not run on
+Ubuntu 22.04, Debian 12 or Linux Mint 21.
+
 ## Quick start
 
 1. **Windows:** unpack the zip into a folder of its own and start `sdrpp.exe`.
@@ -214,6 +218,10 @@ melden, Fragen und Erfahrungen in den
 [Discussions](https://github.com/UnImAtrIXzEr0/sdrpp-air-interface-analyzer/discussions).
 Keine Entschlüsselung; nur für eigene bzw. Amateurfunk-Zellen.
 
+**Linux:** Das AppImage benötigt glibc 2.38 oder neuer und die libstdc++ von
+GCC 13.2 oder neuer (z. B. Ubuntu 24.04, Debian 13, Linux Mint 22). Unter
+Ubuntu 22.04, Debian 12 und Linux Mint 21 läuft es nicht.
+
 **Kein Support:** Das ist kein Community-Projekt, sondern ein Werkzeug, das
 wir für unsere eigenen Ansprüche gebaut bzw. angepasst haben und so, wie es
 ist, veröffentlichen. Wir leisten keine Unterstützung bei Installation, SDRs
@@ -225,7 +233,7 @@ ob und wann wir etwas davon umsetzen, behalten wir uns vor.
 | Platform | Download | Build yourself |
 |---|---|---|
 | Windows 10 / 11, 64 bit | zip | possible, laborious |
-| Linux x86-64 with glibc ≥ 2.39 (Ubuntu 24.04+, Debian 13, Fedora 40+, Arch) | AppImage | yes |
+| Linux x86-64 with glibc ≥ 2.38 (Ubuntu 24.04+, Debian 13, Fedora 40+, Arch) | AppImage | yes |
 | Older Linux (Ubuntu 22.04, Debian 12, Mint 21), ARM boards | – | **yes** |
 | macOS | – | not tested |
 | Android | – | not supported |

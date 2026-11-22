@@ -143,7 +143,7 @@ sudo udevadm control --reload-rules &amp;&amp; sudo udevadm trigger</pre>
 <p>Der Benutzer muss in der Gruppe <code>plugdev</code> sein (<code>groups</code>). Nachbauten mit anderer USB-Kennung (<code>lsusb</code>) bekommen eine eigene Zeile. Einen Pluto im Netzwerk trägst du unter <span class="ui">Source</span> → <span class="ui">Address</span> ein (z. B. <code>ip:192.168.2.1</code>) und wählst <span class="ui">Use address</span>.</p>
 
 <h2 id="s2-5">Selbst bauen (andere Linux-Versionen, Windows, macOS)</h2>
-<p>Die fertigen Pakete laufen unter <b>Windows 10 und 11 (64 Bit)</b> und unter <b>Linux x86-64 mit glibc 2.39 oder neuer</b> (Ubuntu 24.04 und neuer, Debian 13, Fedora 40 und neuer, aktuelles Arch). Für ältere Linux-Versionen (z. B. Ubuntu 22.04, Debian 12, Mint 21), ARM-Rechner oder den neuesten Stand vor einem Release baut man das Programm aus dem Quellcode selbst. macOS ist nicht getestet, Android wird nicht unterstützt.</p>
+<p>Die fertigen Pakete laufen unter <b>Windows 10 und 11 (64 Bit)</b> und unter <b>Linux x86-64 mit glibc 2.38 oder neuer</b> (Ubuntu 24.04 und neuer, Debian 13, Fedora 40 und neuer, aktuelles Arch). Für ältere Linux-Versionen (z. B. Ubuntu 22.04, Debian 12, Mint 21), ARM-Rechner oder den neuesten Stand vor einem Release baut man das Programm aus dem Quellcode selbst. macOS ist nicht getestet, Android wird nicht unterstützt.</p>
 <ol class="steps">
   <li><b>SDR-Treiber</b> nach den Seiten der Hersteller installieren (RTL-SDR: Osmocom; PlutoSDR: libiio/libad9361; USRP: UHD-Installationsanleitung; HackRF, Airspy, BladeRF, LimeSuite, SDRplay-API, SoapySDR). Die Links stehen in <code>docs/BUILDING.md</code> im Repository.</li>
   <li><b>Voraussetzungen</b> (Debian/Ubuntu):

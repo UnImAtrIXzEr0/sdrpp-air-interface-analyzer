@@ -7,7 +7,7 @@ cover most users:
 | Package | Runs on | Notes |
 |---|---|---|
 | `…_windows_x64.zip` | Windows 10 and 11, 64 bit | built with Visual Studio 2022 |
-| `…_x86_64.AppImage` | Linux x86-64 with **glibc 2.39 or newer**: Ubuntu 24.04 and newer, Debian 13, Fedora 40 and newer, current Arch / openSUSE Tumbleweed | built on Ubuntu 24.04 |
+| `…_x86_64.AppImage` | Linux x86-64 with **glibc 2.38 or newer**: Ubuntu 24.04 and newer, Debian 13, Fedora 40 and newer, current Arch / openSUSE Tumbleweed | built on Ubuntu 24.04 |
 
 Build it yourself for anything else, for example **Ubuntu 22.04, Debian 12,
 Linux Mint 21** (glibc too old for the AppImage), **ARM boards** (Raspberry Pi
