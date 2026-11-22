@@ -67,6 +67,9 @@ done
 
 export NO_STRIP=1
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# libdb-5.3 is only a dependency of libjack, which linuxdeploy does not bundle.
+# A bundled copy would be loaded by the host's libjack via LD_LIBRARY_PATH and
+# fail with BDB1539 on non-Ubuntu systems (issue #2), so it is excluded.
 export LDAI_OUTPUT="SDRPP-AIA${TETRA_VERSION:+_v$TETRA_VERSION}-x86_64.AppImage"
 "$LINUXDEPLOY" --appimage-extract-and-run \
     --appdir "$APPDIR" \
@@ -77,4 +80,5 @@ export LDAI_OUTPUT="SDRPP-AIA${TETRA_VERSION:+_v$TETRA_VERSION}-x86_64.AppImage"
     --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/sdrpp.png" \
     --custom-apprun "$(pwd)/AppRun.sh" \
     --exclude-library "libsdrplay_api.so*" \
+    --exclude-library "libdb-5.3.so*" \
     --output appimage
