@@ -295,6 +295,20 @@ int main() {
         CHECK(std::fabs(r.rmsMean - sumRms / nb) < 0.003, "mean RMS vector error as put in");
         CHECK(std::fabs(r.c0Mean - 0.02) < 0.003, "mean residual carrier as put in");
         CHECK(std::fabs(r.freqMean - 60.0) < 0.5, "mean frequency error as put in");
+        CHECK(r.chk.n == nb && r.dec.n == 0 && std::fabs(r.chk.rmsMean - r.rmsMean) < 1e-12 && r.chk.rmsMax == r.rmsMax
+              && r.chk.peakMax == r.peakMax && r.chk.c0Max == r.c0Max, "CRC-checked bursts shown apart from decisions");
+        // same stream, cell unknown: S(k) only from the decisions, shown separately
+        TetraBurstDsp dsp2;
+        dsp2.setUlVem(true, 0, 0.0);
+        now = 0.0;
+        for (size_t end = WIN; end <= stream.size(); end += STEP, now += 0.15) {
+            std::vector<cf> x(stream.begin() + (end - WIN), stream.begin() + end);
+            dsp2.process(x, end - WIN, now, 20);
+        }
+        const TetraBurstResult::UlVem& r2 = dsp2.result().ulVem;
+        printf("-- cell unknown: %d in statistics, CRC-checked %d, decisions %d, RMS mean %.4f\n", r2.n, r2.chk.n, r2.dec.n, r2.dec.rmsMean);
+        CHECK(!r2.cellKnown && r2.n == nb && r2.chk.n == 0 && r2.dec.n == nb && r2.nDecision == nb, "cell unknown: every burst from decisions");
+        CHECK(std::fabs(r2.dec.rmsMean - sumRms / nb) < 0.003, "decisions at E 5 %: RMS as put in");
     }
     // nothing in the middle: no burst must be found in pure noise
     {

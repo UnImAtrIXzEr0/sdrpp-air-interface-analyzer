@@ -72,6 +72,14 @@ struct TetraBurstResult {
         int decisionOver = 0;      // bursts with S(k) from decisions and a peak > 0.3 (decisions less certain)
         double c0Mean = NAN, c0Max = NAN;
         double freqMean = NAN, freqStd = NAN, freqMaxAbs = NAN;   // Hz vs. the tap frequency
+        // shown separately: S(k) of every block CRC-checked (chk) or S(k) at least
+        // partly from symbol decisions, e.g. speech (dec)
+        struct Part {
+            int n = 0;
+            double rmsMean = NAN, rmsMax = NAN, peakMax = NAN;
+            int peakMaxSym = -1;
+            double c0Max = NAN;
+        } chk, dec;
     } ulVem;
 };
 
@@ -498,6 +506,16 @@ private:
             r.c0Mean = sc / r.n;
             r.freqMean = sf / r.n;
             r.freqStd = r.n > 1 ? std::sqrt((std::max)(0.0, (sff - sf * sf / r.n) / (r.n - 1))) : 0.0;
+            for (const etsi_ul_vem::Meas& m : vemHist) {
+                TetraBurstResult::UlVem::Part& p = m.src == etsi_ul_vem::SRC_CRC ? r.chk : r.dec;
+                if (p.n++ == 0) { p.rmsMean = p.rmsMax = p.peakMax = p.c0Max = 0.0; }
+                p.rmsMean += m.fit.rmsVe;
+                p.rmsMax = (std::max)(p.rmsMax, m.fit.rmsVe);
+                p.c0Max = (std::max)(p.c0Max, m.fit.residualCarrier);
+                if (m.fit.peakVe > p.peakMax) { p.peakMax = m.fit.peakVe; p.peakMaxSym = m.fit.peakSym + 1; }
+            }
+            if (r.chk.n > 0) { r.chk.rmsMean /= r.chk.n; }
+            if (r.dec.n > 0) { r.dec.rmsMean /= r.dec.n; }
         }
         acc.ulVem = r;
     }

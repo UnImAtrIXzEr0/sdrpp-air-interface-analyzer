@@ -51,6 +51,14 @@ struct TetraBurstSettings {
     float msPowerDbm = 30.0f;  // transmit power of the MS at its antenna connector, dBm
 };
 
+// frequency reference for the uplink frequency error (TS 100 394-1 10.2.1)
+struct TetraBurstFreqRef {
+    int freqRef = 0;           // SDR reference: 0 internal, 1 external 10 MHz, 2 calibrated
+    bool dlValid = false;      // downlink carrier error of the cell measured
+    double dlErrHz = 0.0;      // received downlink carrier - nominal DL frequency (BS + SDR error)
+    double dlFreqHz = 0.0;     // nominal downlink frequency
+};
+
 class TetraBurstAnalyzer {
 public:
     static constexpr double FS = TetraBurstDsp::FS;
@@ -160,7 +168,8 @@ public:
     // ---- GUI ----
     // returns true when a setting was changed (to be saved)
     bool draw(const std::string& id, float width, const TetraConstellationView::Palette& pal, TetraBurstSettings& st,
-              double ulFreq, double vfoFreq, float levelCal, bool gainHeld, bool& run, bool inst = false) {
+              double ulFreq, double vfoFreq, float levelCal, bool gainHeld, bool& run, bool inst = false,
+              const TetraBurstFreqRef& fref = TetraBurstFreqRef()) {
         // inst: instrument view - run / overload check / ramp spectrum are softkeys there
         bool changed = false;
         ImVec4 val = tc::val(), good = tc::good(), bad = tc::bad(), warn = tc::warn();
@@ -260,6 +269,7 @@ public:
         }
         drawProfile(id, width, pal, r, st);
         if (st.transients) { drawTransientPeak(r, st); drawTransients(id, width, r); }
+        drawUlVem(r, f, fref);
         if (ImGui::TreeNode(("Time mask##_ba_mask_" + id).c_str())) {
             ImGui::SetNextItemWidth(90.0f * style::uiScale);
             if (ImGui::InputFloat(("Ripple +- dB##_ba_mr_" + id).c_str(), &st.maskRippleDb, 0.1f, 0.5f, "%.1f")) { st.maskRippleDb = std::clamp(st.maskRippleDb, 0.1f, 10.0f); changed = true; }
@@ -291,6 +301,75 @@ public:
 
 private:
     static const size_t RING = 1 << 18;   // 1.8 s
+
+    // modulation accuracy (TS 100 394-1 10.1.3, limits 7.3) and frequency error
+    // (10.2.1) of the uplink bursts, model of TS 100 392-2 6.6.1.2
+    void drawUlVem(const TetraBurstResult& r, double tapHz, const TetraBurstFreqRef& fref) {
+        const TetraBurstResult::UlVem& u = r.ulVem;
+        if (!u.on) { return; }
+        ImVec4 val = tc::val(), good = tc::good(), bad = tc::bad(), warn = tc::warn();
+        auto mark = [&](bool ok) { return ok ? good : bad; };
+        tw::Text("Modulation accuracy (TS 100 394-1 10.1.3):");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Vector error of every uplink burst (TS 100 392-2 6.6.1.2): symbol time,\n"
+                              "frequency, residual carrier C0 and amplitude C1 are removed, amplitude\n"
+                              "changes over the burst stay in the error. Limits (TS 100 394-1 7.3):\n"
+                              "RMS 10 %% in every burst, peak 30 %% in every symbol, C0 5 %%.\n"
+                              "Statistics over the last %d bursts (10.1.3: 200 bursts).\n"
+                              "The standard measures bursts with known content (test mode); over the\n"
+                              "air the ideal symbols S(k) come from the decoded blocks (CRC checked)\n"
+                              "or, e.g. for speech, from the symbol decisions. Bursts with decisions\n"
+                              "are shown separately: a wrong decision hides a part of the error.",
+                              TetraBurstResult::UlVem::TARGET);
+        }
+        if (u.n == 0) {
+            tw::TextDisabled("  waiting for uplink bursts with training sequence...");
+            if (u.rejected > 0) { tw::SameTextDisabled("(%llu rejected)", (unsigned long long)u.rejected); }
+            return;
+        }
+        tw::Text("  Bursts:"); tw::SameTextColored(val, "%d/%d", u.n, TetraBurstResult::UlVem::TARGET);
+        tw::SameTextDisabled("NUB %d (TS1 %d, TS2 %d) CB %d", u.nNub1 + u.nNub2, u.nNub1, u.nNub2, u.nCb);
+        if (u.rejected > 0) { tw::SameTextDisabled("| %llu rejected", (unsigned long long)u.rejected); }
+        if (!u.cellKnown) { tw::TextColored(warn, "  Cell not decoded yet: S(k) from symbol decisions only."); }
+        auto part = [&](const TetraBurstResult::UlVem::Part& p, const char* name, bool verdict) {
+            tw::Text("  %s", name); tw::SameTextColored(val, "%d", p.n);
+            if (p.n == 0) { return; }
+            ImVec4 cr = verdict ? mark(p.rmsMax < 0.10) : val, cp = verdict ? mark(p.peakMax < 0.30) : val, cc = verdict ? mark(p.c0Max < 0.05) : val;
+            tw::Text("    RMS"); tw::SameTextColored(val, "%.1f %%", p.rmsMean * 100.0); tw::SameTextDisabled("mean,");
+            tw::SameTextColored(cr, "%.1f %%", p.rmsMax * 100.0); tw::SameTextDisabled("max (< 10 %%)");
+            tw::Text("    peak"); tw::SameTextColored(cp, "%.1f %%", p.peakMax * 100.0); tw::SameTextDisabled("at SN %d (< 30 %%)", p.peakMaxSym);
+            tw::SameText(" C0"); tw::SameTextColored(cc, "%.1f %%", p.c0Max * 100.0); tw::SameTextDisabled("max (< 5 %%)");
+        };
+        part(u.chk, "S(k) CRC-checked:", true);
+        part(u.dec, "S(k) from decisions:", false);
+        if (u.dec.n > 0) { tw::TextDisabled("    indicative (e.g. speech, partly decoded blocks), no verdict"); }
+        if (u.decisionOver > 0) {
+            tw::TextColored(warn, "    %d burst(s) from decisions with a peak above 30 %%: decisions uncertain", u.decisionOver);
+        }
+
+        tw::Text("Frequency error (TS 100 394-1 10.2.1):");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("df of every burst from the fitted frequency, relative to the analysed\n"
+                              "uplink frequency. Limit for a mobile station (7.3): +-100 Hz.\n"
+                              "With the SDR's internal reference the SDR error is included (indicative).\n"
+                              "MS vs. BS: the downlink of the cell is received with the same SDR, so\n"
+                              "its error, scaled to the uplink frequency, is subtracted. What remains\n"
+                              "is the error of the MS relative to the base station, not to the\n"
+                              "nominal frequency.");
+        }
+        const bool ref = fref.freqRef != 0;
+        tw::Text("  vs. %.4f MHz:", tapHz / 1e6);
+        tw::SameTextColored(val, "%+.1f Hz", u.freqMean); tw::SameTextDisabled("mean, std");
+        tw::SameTextColored(val, "%.1f Hz", u.freqStd); tw::SameTextDisabled(", max |df|");
+        tw::SameTextColored(ref ? mark(u.freqMaxAbs <= 100.0) : val, "%.1f Hz", u.freqMaxAbs);
+        if (ref) { tw::SameTextDisabled("(+-100 Hz)"); }
+        else { tw::SameTextDisabled("(indicative: SDR internal reference)"); }
+        if (fref.dlValid && fref.dlFreqHz > 1e6 && tapHz > 1e6) {
+            double sdr = fref.dlErrHz * tapHz / fref.dlFreqHz;
+            tw::Text("  MS vs. BS:"); tw::SameTextColored(val, "%+.1f Hz", u.freqMean - sdr);
+            tw::SameTextDisabled("(downlink error %+.1f Hz removed)", fref.dlErrHz);
+        }
+    }
 
     // time mask of EN 300 392-2 V3.8.1 6.4.5 (figure 6.3, table 6.8) on the
     // averaged profile (EN 300 394-1 8.4: average power vs. time over the bursts)

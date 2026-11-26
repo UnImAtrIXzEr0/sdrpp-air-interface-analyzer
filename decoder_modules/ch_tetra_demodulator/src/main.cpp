@@ -4073,6 +4073,15 @@ private:
                 measRow("Mod. accuracy 10.1.3", s, "10 / 30 %", "%.1f / %.0f %% (%d)", r.rmsMean * 100.0, r.peakMax * 100.0, r.n);
             }
         }
+        TetraBurstResult br = burstRun && burstAn.isRunning() ? burstAn.get() : TetraBurstResult();
+        const TetraBurstResult::UlVem& uv = br.ulVem;
+        if (uv.on && uv.chk.n > 0) {
+            int s = (uv.chk.rmsMax < 0.10 && uv.chk.peakMax < 0.30 && uv.chk.c0Max < 0.05) ? ST_OK : ST_BAD;
+            measRow("UL mod. accuracy", s, "10 / 30 %", "%.1f / %.0f %% (%d)", uv.chk.rmsMax * 100.0, uv.chk.peakMax * 100.0, uv.chk.n);
+        }
+        if (uv.on && uv.dec.n > 0) {
+            measRow("UL mod. acc. (decisions)", ST_NONE, ui_text::T("indicative"), "%.1f / %.0f %% (%d)", uv.dec.rmsMax * 100.0, uv.dec.peakMax * 100.0, uv.dec.n);
+        }
 
         measSection("Frequency and clock");
         if (syn) {
@@ -4084,6 +4093,14 @@ private:
             measRow("Symbol clock", ST_NONE, "", "%+.1f ppm", m.symbolRatePpm);
         }
         else { measRow("Carrier error", ST_NONE, "", "--"); }
+        if (uv.on && uv.n > 0) {
+            if (freqRef == 0) { measRow("UL frequency error", ST_NONE, ui_text::T("indicative"), "%+.1f Hz (max %.0f)", uv.freqMean, uv.freqMaxAbs); }
+            else { measRow("UL frequency error", uv.freqMaxAbs <= 100.0 ? ST_OK : ST_BAD, "±100 Hz", "%+.1f Hz (max %.0f)", uv.freqMean, uv.freqMaxAbs); }
+            if (syn && m.absErrValid && m.dlFreq > 0 && m.ulFreq > 0 && burstSt.source == 0) {
+                double sdr = m.absErrHz * (double)m.ulFreq / (double)m.dlFreq;
+                measRow("UL MS vs. BS", ST_NONE, "", "%+.1f Hz", uv.freqMean - sdr);
+            }
+        }
         static const char* refs[3] = { "internal", "external 10 MHz", "calibrated" };
         measRow("Reference", freqRef == 0 ? ST_WARN : ST_OK, "", "%s", ui_text::T(refs[std::clamp(freqRef, 0, 2)]));
 
@@ -5880,7 +5897,12 @@ private:
         bool run = burstRun;
         SourceGainInterface* g = findGainInterface();
         bool gainHeld = !autoGain || (gainHolding && !gainFollowNow()) || !(g && g->gainControllable());
-        if (burstAn.draw(name, width, constView.pal, burstSt, (double)m.ulFreq, mainVfoFreq(), levelCalEff, gainHeld, run, instUi)) {
+        TetraBurstFreqRef fref;
+        fref.freqRef = freqRef;
+        fref.dlValid = m.absErrValid;
+        fref.dlErrHz = m.absErrHz;
+        fref.dlFreqHz = (double)m.dlFreq;
+        if (burstAn.draw(name, width, constView.pal, burstSt, (double)m.ulFreq, mainVfoFreq(), levelCalEff, gainHeld, run, instUi, fref)) {
             burstRun = run;
             saveBurstConfig();
         }
