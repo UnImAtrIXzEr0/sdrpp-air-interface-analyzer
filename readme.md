@@ -64,8 +64,8 @@ One surface, like a measuring instrument (the **instrument view**, standard):
 - **Drive tests**: NMEA GPS receiver, CSV log (time stamps with UTC offset),
   map of the drive, map export for Google Earth, propagation diagram around
   the base station – see [Drive test and maps](#drive-test-and-maps).
-- **Instrument view** with modes and softkeys (see above); themes RoSc light,
-  RoSc dark, KeSi and KeSiPro. In the classic layout: your own tile column,
+- **Instrument view** with modes and softkeys (see above); themes Night blue
+  amber (default), Night blue, RoSc light, RoSc dark, KeSi and KeSiPro. In the classic layout: your own tile column,
   touch view for tablets.
 - Automatic RF gain that looks for the best signal-to-noise ratio, dBm
   calibration, snap to carrier, lock VFO.

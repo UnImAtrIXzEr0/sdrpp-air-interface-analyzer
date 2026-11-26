@@ -581,7 +581,7 @@ int sdrpp_main(int argc, char* argv[]) {
     defConfig["max"] = -40.0;
     defConfig["maximized"] = false;
     defConfig["fullscreen"] = false;
-    defConfig["theme"] = "RoSc light"; // HAM-TETRA edition default
+    defConfig["theme"] = "Night blue amber"; // edition default (new installations, see below)
     // Built-in menus hidden by default (can be shown again in the Module Manager)
     // Sources not supported by this edition: hidden from the source list (Module Manager)
     defConfig["hiddenSources"] = json::array({ "Airspy HF+", "Audio", "Dragon Labs", "FobosSDR", "Harogic", "Hermes Lite 2", "Hermes", "HydraSDR", "KCSDR", "KiwiSDR", "Network", "Perseus", "RFNM", "RFspace", "SDDC", "SoapySDR" });
@@ -803,6 +803,7 @@ int sdrpp_main(int argc, char* argv[]) {
     std::cout << "Current path = " << path << std::endl;
     flog::info("Loading config from: {} (path {})", root, path.string());
     core::configManager.setPath(root + "/config.json");
+    bool freshConfig = !std::filesystem::exists(root + "/config.json", ec);
     core::configManager.load(defConfig);
     core::configManager.enableAutoSave();
     core::configManager.acquire();
@@ -980,6 +981,9 @@ int sdrpp_main(int argc, char* argv[]) {
             core::configManager.conf["theme"] = "RoSc dark";
         }
     }
+    // v0.26: a new installation starts with "Night blue amber" (the start-up
+    // migrations above would set "RoSc light"); existing configs keep their theme
+    if (freshConfig) { core::configManager.conf["theme"] = "Night blue amber"; }
 
     // Android can't load just any .so file. This means we have to hardcode the name of the modules
 #ifdef __ANDROID__
