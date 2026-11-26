@@ -3809,7 +3809,8 @@ private:
     // on: -1 plain key, 0/1 toggle (text ": ON/OFF" unless stateText is false; 1 = highlighted)
     bool softkey(const char* label, const std::string& id, int on = -1, const char* right = nullptr, bool stateText = true) {
         float w = ImGui::GetContentRegionAvail().x;
-        float h = (std::max)(ImGui::GetFrameHeight() * 1.45f, 34.0f * style::uiScale);
+        float h = softH;
+        softCount++;
         ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
         if (on == 1) { ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)); }
         std::string txt = std::string(ui_text::T(label));
@@ -3821,6 +3822,7 @@ private:
         return r;
     }
     void softGroup(const char* txt) {
+        softGroups++;
         ImGui::Spacing();
         ImGui::TextDisabled("%s", ui_text::T(txt));
     }
@@ -3846,7 +3848,27 @@ private:
         else if (!reportPath.empty()) { meas.addEvent(reportPath.substr(1)); }
     }
 
+    // key height: full height (34 px) when everything fits, otherwise lower down
+    // to the normal frame height so that the column never needs to scroll; the
+    // counts of keys and group headers come from the previous frame. If even the
+    // normal height is not enough, the views of Measure collapse into one key
+    // with a selection list (compact), like a submenu of an instrument.
+    float softGroupH() const { return ImGui::GetStyle().ItemSpacing.y * 2.0f + ImGui::GetTextLineHeight(); }
     void drawSoftkeys() {
+        float hMax = (std::max)(ImGui::GetFrameHeight() * 1.45f, 34.0f * style::uiScale);
+        float hMin = ImGui::GetFrameHeight();
+        if (softCountPrev > 0) {
+            float sp = ImGui::GetStyle().ItemSpacing.y;
+            float avail = ImGui::GetContentRegionAvail().y - softGroupsPrev * softGroupH();
+            // key count with the full list of views (independent of the compact state)
+            int nFull = softCountPrev + ((softCompact && instMode == IM_MEASURE) ? IV_COUNT - 1 : 0);
+            softCompact = instMode == IM_MEASURE && nFull * (hMin + sp) > avail;
+            int n = softCompact ? nFull - (IV_COUNT - 1) : nFull;
+            softH = std::clamp(avail / n - sp, hMin, hMax);
+        }
+        else { softH = hMax; }
+        softCount = 0;
+        softGroups = 0;
         softGroup("MODE");
         for (int i = 0; i < IM_COUNT; i++) {
             bool act = instMode == i;
@@ -3864,8 +3886,21 @@ private:
             }
             break;
         case IM_MEASURE:
-            for (int v = 0; v < IV_COUNT; v++) {
-                if (softkey(instViewName(v), std::string("view") + std::to_string(v), instView == v ? 1 : 0, nullptr, false)) { instView = v; saveInstConfig(); }
+            if (softCompact) {
+                std::string lbl = std::string(ui_text::T("View:")) + " " + ui_text::T(instViewName(instView)) + "  >";
+                if (softkey(lbl.c_str(), "viewsel", -1, nullptr, false)) { ImGui::OpenPopup(CONCAT("##_sk_viewsel_pop_", name)); }
+                ImGui::SetNextWindowPos(ImVec2(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y));
+                if (ImGui::BeginPopup(CONCAT("##_sk_viewsel_pop_", name))) {
+                    for (int v = 0; v < IV_COUNT; v++) {
+                        if (ImGui::Selectable(ui_text::T(instViewName(v)), instView == v)) { instView = v; saveInstConfig(); }
+                    }
+                    ImGui::EndPopup();
+                }
+            }
+            else {
+                for (int v = 0; v < IV_COUNT; v++) {
+                    if (softkey(instViewName(v), std::string("view") + std::to_string(v), instView == v ? 1 : 0, nullptr, false)) { instView = v; saveInstConfig(); }
+                }
             }
             softGroup("SOFTKEYS");
             if (softkey("Reset statistics", "reset")) { meas.resetTotals(); }
@@ -3949,12 +3984,14 @@ private:
             break;
         default: break;
         }
-        // RF / Gain and the settings at the bottom of the column
-        float h = (std::max)(ImGui::GetFrameHeight() * 1.45f, 34.0f * style::uiScale);
-        float y = ImGui::GetWindowContentRegionMax().y - 2.0f * h - ImGui::GetStyle().ItemSpacing.y;
+        // own group SETUP with RF / Gain and the settings at the bottom of the column
+        float y = ImGui::GetWindowContentRegionMax().y - softGroupH() - 2.0f * softH - ImGui::GetStyle().ItemSpacing.y;
         if (y > ImGui::GetCursorPosY()) { ImGui::SetCursorPosY(y); }
+        softGroup("SETUP");
         if (softkey("RF / Gain", "rf", rfOpen ? 1 : 0, nullptr, false)) { rfOpen = !rfOpen; }
         if (softkey("Settings", "settings")) { settingsOpen = true; }
+        softCountPrev = softCount;
+        softGroupsPrev = softGroups;
     }
 
     // ---- content of the side panel per mode ----
@@ -7014,6 +7051,11 @@ private:
     bool constellation8 = true;
     bool hamMode = true; // amateur radio duplex table (default); ETSI table otherwise
     bool stationsOn = true;   // stations list, name lists, stations CSV (own or amateur radio networks)
+    // softkey column: key height, compact view selection and the counts of the
+    // last frame (the column never scrolls)
+    float softH = 34.0f;
+    bool softCompact = false;
+    int softCount = 0, softGroups = 0, softCountPrev = 0, softGroupsPrev = 0;
     int hamTable[8][16];
     std::string hamTableStatus;
     TetraSubscriberTable subscribers;

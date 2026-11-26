@@ -25,6 +25,8 @@ namespace ui_text {
             { "MODE", "MODUS" },
             { "SOFTKEYS", "SOFTKEYS" },
             { "VIEW", "ANSICHT" },
+            { "SETUP", "EINRICHTUNG" },
+            { "View:", "Ansicht:" },
             // status bar
             { "Sync", "Sync" },
             { "Locked", "Eingerastet" },
