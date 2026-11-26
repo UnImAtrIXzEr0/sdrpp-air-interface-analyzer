@@ -247,6 +247,19 @@ namespace displaymenu {
     }
 
 
+    bool selectColorMap(const std::string& name) {
+        auto it = std::find(colorMapNames.begin(), colorMapNames.end(), name);
+        if (it == colorMapNames.end() || colormaps::maps.find(name) == colormaps::maps.end()) { return false; }
+        colorMapId = (int)std::distance(colorMapNames.begin(), it);
+        colormaps::Map map = colormaps::maps[name];
+        gui::waterfall.updatePalletteFromArray(map.map, map.entryCount);
+        core::configManager.acquire();
+        core::configManager.conf["colorMap"] = name;
+        core::configManager.release(true);
+        colorMapAuthor = map.author;
+        return true;
+    }
+
     void draw(void* ctx) {
         float menuWidth = ImGui::GetContentRegionAvail().x;
         if (ImGui::Checkbox("Touch mode (larger controls)##_sdrpp", &phoneLayout)) {

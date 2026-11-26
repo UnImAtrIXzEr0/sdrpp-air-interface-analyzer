@@ -202,9 +202,17 @@ namespace ImGui {
         float scaleFactor = fftHeight / vertRange;
         char buf[100];
 
-        ImU32 trace = ImGui::GetColorU32(ImGuiCol_PlotLines);
+        ImU32 trace = gui::themeManager.hasSpectrumTrace ? ImGui::ColorConvertFloat4ToU32(gui::themeManager.spectrumTrace) : ImGui::GetColorU32(ImGuiCol_PlotLines);
         ImU32 traceHold = ImGui::ColorConvertFloat4ToU32(gui::themeManager.fftHoldColor);
-        ImU32 shadow = ImGui::GetColorU32(ImGuiCol_PlotLines, 0.2);
+        ImU32 shadow = gui::themeManager.hasSpectrumTrace ? ImGui::ColorConvertFloat4ToU32(ImVec4(gui::themeManager.spectrumTrace.x, gui::themeManager.spectrumTrace.y, gui::themeManager.spectrumTrace.z, gui::themeManager.spectrumTrace.w * 0.2f)) : ImGui::GetColorU32(ImGuiCol_PlotLines, 0.2);
+        ImU32 grid = ImGui::ColorConvertFloat4ToU32(gui::themeManager.spectrumGrid);
+        // Gradient fill under the trace (theme keys SpectrumFillTop/-Bottom): top colour
+        // right under the trace, fading over the full plot height towards the bottom colour
+        bool gradientFill = gui::themeManager.hasSpectrumFill;
+        ImVec4 fillTop = gui::themeManager.spectrumFillTop;
+        ImVec4 fillBottom = gui::themeManager.spectrumFillBottom;
+        ImU32 fillTopCol = ImGui::ColorConvertFloat4ToU32(fillTop);
+        float fillHeight = (std::max)(1.0f, fftAreaMax.y - fftAreaMin.y);
         ImU32 text = ImGui::GetColorU32(ImGuiCol_Text);
         float textVOffset = 10.0f * style::uiScale;
 
@@ -213,7 +221,7 @@ namespace ImGui {
             float yPos = fftAreaMax.y - ((line - fftMin) * scaleFactor);
             window->DrawList->AddLine(ImVec2(fftAreaMin.x, roundf(yPos)),
                                       ImVec2(fftAreaMax.x, roundf(yPos)),
-                                      IM_COL32(50, 50, 50, 255), style::uiScale);
+                                      grid, style::uiScale);
             snprintf(buf, sizeof buf, "%d", (int)line);
             ImVec2 txtSz = ImGui::CalcTextSize(buf);
             window->DrawList->AddText(ImVec2(fftAreaMin.x - txtSz.x - textVOffset, roundf(yPos - (txtSz.y / 2.0))), text, buf);
@@ -228,7 +236,7 @@ namespace ImGui {
                 double xPos = fftAreaMin.x + ((freq - lowerFreq) * horizScale);
                 window->DrawList->AddLine(ImVec2(roundf(xPos), fftAreaMin.y + 1),
                                           ImVec2(roundf(xPos), fftAreaMax.y),
-                                          IM_COL32(50, 50, 50, 255), style::uiScale);
+                                          grid, style::uiScale);
                 window->DrawList->AddLine(ImVec2(roundf(xPos), fftAreaMax.y),
                                           ImVec2(roundf(xPos), fftAreaMax.y + scaleVOfsset),
                                           text, style::uiScale);
@@ -252,8 +260,18 @@ namespace ImGui {
                         //                        double aPos = fftAreaMax.y - ((latestFFT[i - 1] - fftMin) * scaleFactor);
                         //                        window->DrawList->AddLine(ImVec2(fftAreaMin.x + i - 1, roundf(aPos)),
                         //                                                  ImVec2(fftAreaMin.x + i, roundf(bPos)), trace, 1.0);
-                        window->DrawList->AddLine(ImVec2(fftAreaMin.x + i, roundf(bPos)),
-                                                  ImVec2(fftAreaMin.x + i, fftAreaMax.y), shadow, 1.0);
+                        if (gradientFill) {
+                            float t = std::clamp<float>((fftAreaMax.y - (float)roundf(bPos)) / fillHeight, 0.0f, 1.0f);
+                            ImVec4 c = ImVec4(fillTop.x + (fillBottom.x - fillTop.x) * t, fillTop.y + (fillBottom.y - fillTop.y) * t,
+                                              fillTop.z + (fillBottom.z - fillTop.z) * t, fillTop.w + (fillBottom.w - fillTop.w) * t);
+                            ImU32 bottomCol = ImGui::ColorConvertFloat4ToU32(c);
+                            window->DrawList->AddRectFilledMultiColor(ImVec2(fftAreaMin.x + i, roundf(bPos)), ImVec2(fftAreaMin.x + i + 1, fftAreaMax.y),
+                                                                      fillTopCol, fillTopCol, bottomCol, bottomCol);
+                        }
+                        else {
+                            window->DrawList->AddLine(ImVec2(fftAreaMin.x + i, roundf(bPos)),
+                                                      ImVec2(fftAreaMin.x + i, fftAreaMax.y), shadow, 1.0);
+                        }
                     }
                 }
                 window->DrawList->AddPolyline(traces.data(), traces.size(), trace, 0, 1.0);
@@ -1154,8 +1172,9 @@ namespace ImGui {
         // window->DrawList->AddRectFilled(widgetPos, widgetEndPos, IM_COL32( 0, 0, 0, 255 ));
         ImU32 bg = ImGui::ColorConvertFloat4ToU32(gui::themeManager.waterfallBg);
         window->DrawList->AddRectFilled(widgetPos, widgetEndPos, bg);
-        window->DrawList->AddRect(widgetPos, widgetEndPos, IM_COL32(50, 50, 50, 255), 0.0, 0, style::uiScale);
-        window->DrawList->AddLine(ImVec2(widgetPos.x, freqAreaMax.y), ImVec2(widgetPos.x + widgetSize.x, freqAreaMax.y), IM_COL32(50, 50, 50, 255), style::uiScale);
+        ImU32 frame = ImGui::ColorConvertFloat4ToU32(gui::themeManager.spectrumGrid);
+        window->DrawList->AddRect(widgetPos, widgetEndPos, frame, 0.0, 0, style::uiScale);
+        window->DrawList->AddLine(ImVec2(widgetPos.x, freqAreaMax.y), ImVec2(widgetPos.x + widgetSize.x, freqAreaMax.y), frame, style::uiScale);
 
         if (!gui::mainWindow.lockWaterfallControls && ImGui::GetTopMostPopupModal() == NULL) {
             inputHandled = false;

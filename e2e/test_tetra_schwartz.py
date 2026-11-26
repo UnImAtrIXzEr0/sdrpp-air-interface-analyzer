@@ -667,7 +667,7 @@ def test_instrument_ui():
         if not st().get("menuDisabled"):
             stats.test_fail("test_instrument_ui", "SDR menu still available in the instrument UI")
             return False
-        for page in range(11):
+        for page in range(12):
             ctx.module_cmd("TETRA Analyzer", "inst", "settings %d" % page)
             ctx.sleep(0.6)
         ctx.module_cmd("TETRA Analyzer", "inst", "settings -1")
@@ -774,7 +774,7 @@ def test_instrument_ui():
         if not m or m.get("rx_state") != 2:
             stats.test_fail("test_instrument_ui", f"decoder not locked after the UI run: {m}")
             return False
-    stats.test_pass("test_instrument_ui", "4 modes, 7 views, EN/DE, frame work with module view, waterfall back, 11 settings pages, RF window, drive map with tiles, saved map and map image, no SDR menu, classic and back")
+    stats.test_pass("test_instrument_ui", "4 modes, 7 views, EN/DE, frame work with module view, waterfall back, 12 settings pages, RF window, drive map with tiles, saved map and map image, no SDR menu, classic and back")
     return True
 
 
@@ -1017,7 +1017,14 @@ def test_no_scrollbars():
                 for view in range(7):
                     ctx.module_cmd("TETRA Analyzer", "inst", "view %d" % view)
                     check(f"{lang} view {view}")
-                for page in range(11):
+                # cell details and events in the main area (Monitor and Measure)
+                for mode in (0, 1):
+                    ctx.module_cmd("TETRA Analyzer", "inst", "mode %d" % mode)
+                    for page in ("1 0", "1 1", "1 2", "1 3", "2"):
+                        ctx.module_cmd("TETRA Analyzer", "inst", "page " + page)
+                        check(f"{lang} mode {mode} page {page}")
+                ctx.module_cmd("TETRA Analyzer", "inst", "page 0")
+                for page in range(12):
                     ctx.module_cmd("TETRA Analyzer", "inst", "settings %d" % page)
                     check(f"{lang} settings page {page}")
                 ctx.module_cmd("TETRA Analyzer", "inst", "settings -1")
@@ -1027,7 +1034,7 @@ def test_no_scrollbars():
     if bad:
         stats.test_fail("test_no_scrollbars", "; ".join(bad[:12]))
         return False
-    stats.test_pass("test_no_scrollbars", "no scroll bar in any mode, view, settings page or the RF window at 1920x1010 and 1366x700, EN/DE")
+    stats.test_pass("test_no_scrollbars", "no scroll bar in any mode, view, cell details / events page, settings page or the RF window at 1920x1010 and 1366x700, EN/DE")
     return True
 
 

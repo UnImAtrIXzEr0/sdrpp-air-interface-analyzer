@@ -87,8 +87,11 @@ bool ThemeManager::loadTheme(std::string path) {
     for (auto const& [param, val] : params) {
         if (param == "name" || param == "author") { continue; }
 
+        // Colour map the theme selects for the waterfall (a colour map name, checked when applied)
+        if (param == "WaterfallColorMap") { continue; }
+
         // Exception for non-imgu colors
-        if (param == "WaterfallBackground" || param == "ClearColor" || param == "FFTHoldColor" || param.rfind("Constellation", 0) == 0 || param.rfind("Vfo", 0) == 0) {
+        if (param == "WaterfallBackground" || param == "ClearColor" || param == "FFTHoldColor" || param == "SpectrumTrace" || param == "SpectrumGrid" || param == "SpectrumFillTop" || param == "SpectrumFillBottom" || param.rfind("Constellation", 0) == 0 || param.rfind("Vfo", 0) == 0 || param.rfind("Value", 0) == 0) {
             if (val[0] != '#' || !std::all_of(val.begin() + 1, val.end(), ::isxdigit) || val.length() != 9) {
                 flog::error("Theme {0} contains invalid {1} field. Expected hex RGBA color", path, param);
                 return false;
@@ -162,6 +165,13 @@ bool ThemeManager::applyTheme(std::string name) {
     Theme thm = themes[name];
     extraColors.clear();
 
+    // Spectrum look: defaults (grey grid, trace colour shadow) unless the theme sets them
+    hasSpectrumTrace = false;
+    hasSpectrumFill = false;
+    spectrumGrid = ImVec4(50.0f / 255.0f, 50.0f / 255.0f, 50.0f / 255.0f, 1.0f);
+    waterfallColorMap.clear();
+    bool fillTop = false, fillBottom = false;
+
     uint8_t ret[4];
     std::map<std::string, std::string> params = thm.data;
     for (auto const& [param, val] : params) {
@@ -179,7 +189,7 @@ bool ThemeManager::applyTheme(std::string name) {
             continue;
         }
 
-        if (param.rfind("Constellation", 0) == 0 || param.rfind("Vfo", 0) == 0) {
+        if (param.rfind("Constellation", 0) == 0 || param.rfind("Vfo", 0) == 0 || param.rfind("Value", 0) == 0) {
             decodeRGBA(val, ret);
             extraColors[param] = ImVec4((float)ret[0] / 255.0f, (float)ret[1] / 255.0f, (float)ret[2] / 255.0f, (float)ret[3] / 255.0f);
             continue;
@@ -197,6 +207,17 @@ bool ThemeManager::applyTheme(std::string name) {
             continue;
         }
 
+        if (param == "WaterfallColorMap") { waterfallColorMap = val; continue; }
+        if (param == "SpectrumTrace" || param == "SpectrumGrid" || param == "SpectrumFillTop" || param == "SpectrumFillBottom") {
+            decodeRGBA(val, ret);
+            ImVec4 c = ImVec4((float)ret[0] / 255.0f, (float)ret[1] / 255.0f, (float)ret[2] / 255.0f, (float)ret[3] / 255.0f);
+            if (param == "SpectrumTrace") { spectrumTrace = c; hasSpectrumTrace = true; }
+            else if (param == "SpectrumGrid") { spectrumGrid = c; }
+            else if (param == "SpectrumFillTop") { spectrumFillTop = c; fillTop = true; }
+            else { spectrumFillBottom = c; fillBottom = true; }
+            continue;
+        }
+
         // If param is a color, check that it's a valid RGBA hex value
         if (IMGUI_COL_IDS.find(param) != IMGUI_COL_IDS.end()) {
             decodeRGBA(val, ret);
@@ -204,6 +225,7 @@ bool ThemeManager::applyTheme(std::string name) {
             continue;
         }
     }
+    hasSpectrumFill = fillTop && fillBottom;
 
     return true;
 }
