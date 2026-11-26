@@ -12,6 +12,9 @@
 //     made coherently after removing frequency, phase and amplitude; with
 //     neighbouring points 90 degrees apart, a decision is only wrong for a
 //     vector error above about 0.7.
+//   - fit of TS 100 392-2 6.6.1.2 (symbol time, Theta, C0, C1; amplitude
+//     changes stay in the vector error): RMS and peak vector error, residual
+//     carrier and the frequency error df of TS 100 394-1 10.2.1.
 // pi/4-DQPSK only. The input is the TETRA-filtered signal at 8 samples per
 // symbol (as in etsi_vem.h). No SDR++ dependencies: unit-testable
 // (e2e/gen/test_ul_vem.cpp).
@@ -37,7 +40,7 @@ namespace etsi_ul_vem {
     // tail bits (9.4.4.3.5, equation 9.12)
     static const uint8_t T_BITS[4] = { 1, 1, 0, 0 };
     // accepted bit errors in the training sequence
-    static constexpr int MAX_ERR_N = 2, MAX_ERR_X = 3;
+    static constexpr int MAX_ERR_N = 2, MAX_ERR_X = 3, MAX_ERR_KNOWN = 3;
 
     enum UlType { UL_NONE = 0, UL_NUB1, UL_NUB2, UL_CB };
     // where the ideal symbols come from
@@ -187,8 +190,9 @@ namespace etsi_ul_vem {
             int sc = knownFieldErrors(y, c.t1, c.t, c.mir);
             if (sc < bestScore) { bestScore = sc; best = c; }
         }
-        // a real burst decodes its tail bits too (8 bits): allow 2 errors more than the training sequence
-        if (best.t == UL_NONE || bestScore > best.trainErr + 2 + 2) { return f; }
+        // a real burst decodes its tail bits too: at most MAX_ERR_KNOWN errors in
+        // all fixed bits together (30 for NUB, 38 for CB)
+        if (best.t == UL_NONE || bestScore > MAX_ERR_KNOWN) { return f; }
         const int n = symbols(best.t);
         double t1 = best.t1;
         // timing: whole samples within +-half a symbol (several sample phases can
@@ -212,66 +216,104 @@ namespace etsi_ul_vem {
     }
 
     // ---------------- symbol decisions ----------------
-    // Coherent decisions on SN0..SNn: first the phase changes, then the
-    // frequency (slope of the phase of Z S*), phase, amplitude and residual
-    // carrier (least squares) are removed and every symbol is decided to the
-    // nearest point allowed at its position (pi/4-DQPSK alternates between the
-    // two QPSK sets). Returns the 2n bits.
+    // Coherent decisions on SN0..SNn, every symbol on its own (a wrong decision
+    // does not carry over as with differential decisions):
+    //   1. frequency: mean deviation of the phase changes from their decisions
+    //   2. after removing it and the pi/4 rotation of every second symbol, all
+    //      symbols lie on one QPSK set; its phase from the 4th power
+    //   3. nearest point; then once more with the residual carrier C0 and the
+    //      complex amplitude C1 by least squares on these decisions
+    // The phase ambiguity of pi/2 drops out of the phase changes, which carry
+    // the bits. Returns the 2n bits.
     inline void decideBits(const std::vector<std::complex<float>>& y, double t1, int n, bool mirror, uint8_t* bits) {
-        std::vector<double> d;
-        phaseSteps(y, t1, n, d);
-        for (int k = 0; k < n; k++) {
-            int q = decideStep(d[k]);
-            etsi_vem::phaseDibit(mirror ? -q : q, bits + 2 * k);
+        std::vector<std::complex<double>> Z(n + 1);
+        for (int k = 0; k <= n; k++) {
+            Z[k] = etsi_vem::interp(y, t1 + (k - 1) * (double)SPS);
+            if (mirror) { Z[k] = std::conj(Z[k]); }
         }
+        // 1. frequency (radians per symbol)
+        double w = 0.0;
         for (int pass = 0; pass < 2; pass++) {
-            // symbols SN0..SNn and their ideal values from the current decisions
-            std::vector<std::complex<double>> Z(n + 1), S(n + 1);
-            for (int k = 0; k <= n; k++) { Z[k] = etsi_vem::interp(y, t1 + (k - 1) * (double)SPS); }
-            if (mirror) { for (auto& z : Z) { z = std::conj(z); } }
-            std::vector<std::complex<double>> s = idealSymbols(bits, n, false);
-            S[0] = 1.0;
-            for (int k = 0; k < n; k++) { S[k + 1] = s[k]; }
-            // frequency: slope of the unwrapped phase of Z S*
-            double prev = 0.0, mk = n / 2.0, sxx = 0.0, sxp = 0.0, mp = 0.0;
-            std::vector<double> ph(n + 1);
-            for (int k = 0; k <= n; k++) {
-                double a = std::arg(Z[k] * std::conj(S[k]));
-                if (k > 0) { while (a - prev > PI_D) { a -= 2 * PI_D; } while (a - prev < -PI_D) { a += 2 * PI_D; } }
-                ph[k] = a;
-                prev = a;
-                mp += a;
+            double sum = 0.0;
+            for (int k = 1; k <= n; k++) {
+                double v = std::arg(Z[k] * std::conj(Z[k - 1])) - w;
+                while (v > PI_D) { v -= 2 * PI_D; }
+                while (v < -PI_D) { v += 2 * PI_D; }
+                sum += v - decideStep(v) * PI_D / 4.0;
             }
-            mp /= (n + 1);
-            for (int k = 0; k <= n; k++) { double x = k - mk; sxx += x * x; sxp += x * (ph[k] - mp); }
-            const double w = sxp / sxx;
-            // derotate, then least squares Y = C0 + C1 S
+            w += sum / n;
+        }
+        // 2. onto one QPSK set; there the 4th power removes the modulation.
+        // Every wrong decision of a phase change in 1 shifts the mean by pi/2 / n,
+        // so the frequency is refined on the 4th power (largest coherent sum).
+        std::vector<std::complex<double>> U(n + 1), U4(n + 1);
+        for (int k = 0; k <= n; k++) {
+            U[k] = Z[k] * std::polar(1.0, -w * k - ((k & 1) ? PI_D / 4.0 : 0.0));
+            std::complex<double> u2 = U[k] * U[k];
+            U4[k] = u2 * u2;
+        }
+        auto power4 = [&](double dw) {
+            std::complex<double> a(0.0, 0.0), r(1.0, 0.0), st = std::polar(1.0, -4.0 * dw);
+            for (int k = 0; k <= n; k++) { a += U4[k] * r; r *= st; }
+            return std::abs(a);
+        };
+        {
+            // grid over +-3 wrong decisions (step well below the main lobe width 2 pi / (4 n)), then golden section
+            const double lim = 3.0 * (PI_D / 2.0) / n + 1e-3, stp = PI_D / (8.0 * n);
+            double bd = 0.0, bp = -1.0;
+            for (double dw = -lim; dw <= lim; dw += stp) {
+                double v = power4(dw);
+                if (v > bp) { bp = v; bd = dw; }
+            }
+            bd = etsi_vem::golden([&](double dw) { return -power4(dw); }, bd - stp, bd + stp, 16);
+            w += bd;
+        }
+        std::complex<double> acc(0.0, 0.0);
+        for (int k = 0; k <= n; k++) {
+            U[k] = Z[k] * std::polar(1.0, -w * k - ((k & 1) ? PI_D / 4.0 : 0.0));
+            std::complex<double> u2 = U[k] * U[k];
+            acc += u2 * u2;
+        }
+        const double phi = std::arg(acc) / 4.0;   // QPSK at 0, 90, 180, 270 degrees (+ phi): 4th power at 4 phi
+        // 3. decisions: phase index p (units of pi/4) of every symbol
+        std::vector<int> p(n + 1);
+        auto decide = [&](const std::vector<std::complex<double>>& V) {
+            for (int k = 0; k <= n; k++) {
+                int q = (int)std::lround(std::arg(V[k]) / (PI_D / 2.0));
+                p[k] = ((2 * q + (k & 1)) % 8 + 8) % 8;
+            }
+        };
+        {
+            std::vector<std::complex<double>> V(n + 1);
+            for (int k = 0; k <= n; k++) { V[k] = U[k] * std::polar(1.0, -phi); }
+            decide(V);
+        }
+        // refinement: Z e^-jwk = C0 + C1 S by least squares, then decide (Z e^-jwk - C0) / C1
+        {
             std::complex<double> sS(0, 0), sY(0, 0), sYS(0, 0);
             double sSS = 0.0;
+            std::vector<std::complex<double>> Y(n + 1);
             for (int k = 0; k <= n; k++) {
-                Z[k] *= std::polar(1.0, -w * k);
-                sS += S[k]; sY += Z[k]; sYS += Z[k] * std::conj(S[k]); sSS += std::norm(S[k]);
+                Y[k] = Z[k] * std::polar(1.0, -w * k);
+                std::complex<double> S = std::polar(1.0, p[k] * PI_D / 4.0);
+                sS += S; sY += Y[k]; sYS += Y[k] * std::conj(S); sSS += 1.0;
             }
             const double N = n + 1;
             std::complex<double> det = N * sSS - std::norm(sS);
-            if (std::abs(det) < 1e-12) { return; }
-            std::complex<double> C1 = (N * sYS - sY * std::conj(sS)) / det;
-            std::complex<double> C0 = (sY - C1 * sS) / N;
-            if (std::abs(C1) < 1e-12) { return; }
-            // nearest allowed point: phase index of the parity of k (SN0 at 0)
-            int last = 0;
-            for (int k = 0; k <= n; k++) {
-                std::complex<double> v = (Z[k] - C0) / C1;
-                double a = std::arg(v) / (PI_D / 4.0);
-                int q = (k & 1) ? (int)(std::round((a - 1.0) / 2.0) * 2.0 + 1.0) : (int)(std::round(a / 2.0) * 2.0);
-                q = ((q % 8) + 8) % 8;
-                if (k > 0) {
-                    int step = ((q - last) % 8 + 8) % 8;   // 1, 3, 5 or 7
-                    int qs = step == 1 ? 1 : step == 3 ? 3 : step == 5 ? -3 : -1;
-                    etsi_vem::phaseDibit(qs, bits + 2 * (k - 1));   // Z is already unmirrored
+            if (std::abs(det) > 1e-12) {
+                std::complex<double> C1 = (N * sYS - sY * std::conj(sS)) / det;
+                std::complex<double> C0 = (sY - C1 * sS) / N;
+                if (std::abs(C1) > 1e-12) {
+                    std::vector<std::complex<double>> V(n + 1);
+                    for (int k = 0; k <= n; k++) { V[k] = (Y[k] - C0) / C1 * std::polar(1.0, (k & 1) ? -PI_D / 4.0 : 0.0); }
+                    decide(V);
                 }
-                last = q;
             }
+        }
+        for (int k = 1; k <= n; k++) {
+            int step = ((p[k] - p[k - 1]) % 8 + 8) % 8;   // 1, 3, 5 or 7
+            int qs = step == 1 ? 1 : step == 3 ? 3 : step == 5 ? -3 : -1;
+            etsi_vem::phaseDibit(qs, bits + 2 * (k - 1));   // Z is already unmirrored
         }
     }
 
@@ -337,5 +379,65 @@ namespace etsi_ul_vem {
         r.bitErrors = etsi_vem::hamming(rx, r.bits, nb);
         r.ok = true;
         return r;
+    }
+
+    // ---------------- vector error fit ----------------
+    // Model of TS 100 392-2 6.6.1.2 (equations 6.6 and 6.7): the symbol time,
+    // the frequency (Theta, radians per symbol), the residual carrier C0 and the
+    // complex amplitude C1 are estimated; amplitude changes over the burst are
+    // not compensated, they are part of the vector error. The estimates are the
+    // ones with the smallest sum square vector error (the standard does not fix
+    // the criterion). sps: samples per symbol of the SDR (sample clock vs.
+    // symbol rate), e.g. from the downlink measurement; a burst is too short to
+    // estimate it on its own. S: ideal symbols SN1..SNmax.
+    inline etsi_vem::Fit fitBurst(const std::vector<std::complex<float>>& y, double t1, const std::vector<std::complex<double>>& S, double sps = SPS) {
+        double w = 0.0, dr = 0.0;
+        etsi_vem::slopes(y, t1, S, w, dr, sps);   // initial frequency (dr unused)
+        auto cost = [&](double t, double ww) { return etsi_vem::evalModel(y, t, S, ww, 0.0, false, nullptr, sps).cost; };
+        double span = 2.0 * PI_D * 20.0 / etsi_vem::SYMRATE;   // +-20 Hz
+        double tspan = 0.3;
+        for (int it = 0; it < 3; it++) {
+            w = etsi_vem::golden([&](double ww) { return cost(t1, ww); }, w - span, w + span, 20);
+            t1 = etsi_vem::golden([&](double t) { return cost(t, w); }, t1 - tspan, t1 + tspan, 14);
+            span /= 4.0;
+            tspan /= 3.0;
+        }
+        return etsi_vem::evalModel(y, t1, S, w, 0.0, false, nullptr, sps);
+    }
+
+    // ---------------- one burst ----------------
+    struct Meas {
+        bool ok = false;
+        UlType type = UL_NONE;
+        Source src = SRC_NONE;
+        int nsym = 0;              // SNmax
+        bool mirror = false;
+        int bitErrors = 0;         // decisions vs. CRC-checked bits
+        etsi_vem::Fit fit;         // rmsVe, peakVe (peakSym: 0 = SN1), residualCarrier
+        double freqHz = NAN;       // df (TS 100 394-1 10.2.1) vs. the tap, sign of the real spectrum
+        const char* why = "";
+    };
+    // centre / length: from the power detection (see findBurst); scr: scrambling
+    // code of the cell (0: not known, ideal symbols from the decisions only)
+    inline Meas measureBurst(const std::vector<std::complex<float>>& y, double centre, int length, uint32_t scr, double sps = SPS) {
+        Meas m;
+        Found f = findBurst(y, centre, length);
+        if (!f.ok) { m.why = "no training sequence"; return m; }
+        const int n = symbols(f.type);
+        uint8_t rx[NUB_BITS];
+        decideBits(y, f.t1, n, f.mirror, rx);
+        Ideal id = idealBits(f.type, rx, scr);
+        if (!id.ok) { m.why = id.why; return m; }
+        std::vector<std::complex<double>> S = idealSymbols(id.bits, n, f.mirror);
+        m.fit = fitBurst(y, f.t1, S, sps);
+        if (!m.fit.ok) { m.why = "fit"; return m; }
+        m.type = f.type;
+        m.src = id.src;
+        m.nsym = n;
+        m.mirror = f.mirror;
+        m.bitErrors = id.bitErrors;
+        m.freqHz = f.mirror ? -m.fit.freqHz : m.fit.freqHz;
+        m.ok = true;
+        return m;
     }
 }
