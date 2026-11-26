@@ -14,7 +14,7 @@ namespace tetra_help {
             return "Level of the TETRA channel (mean power through the channel filter).\n"
                    "How: dBFS = relative to the ADC full scale; dBm only with 'Level cal.'\n"
                    "(remembers the gain, later gain steps corrected from the gain table, +-1 dB).\n"
-                   "Standard: EN 300 394-1 7.1.1 measures transmitter power at the antenna\n"
+                   "Standard: TS 100 394-1 7.1.1 measures transmitter power at the antenna\n"
                    "connector (+-2 dB). Over the air this is a field level: indicative.";
         case RF_STATUS:
             return "ADC and level check: overload of the ADC by the TETRA signal or by any\n"
@@ -24,7 +24,7 @@ namespace tetra_help {
             return "Modulation error ratio and decoder EVM: quick values from the decoder,\n"
                    "measured after its tracking loops (phase, frequency, gain) - too optimistic.\n"
                    "Not a value of the TETRA standard (MER comes from broadcasting).\n"
-                   "Per standard: 'Modulation accuracy (EN 300 394-1, 10.1.3)' below.";
+                   "Per standard: 'Modulation accuracy (TS 100 394-1, 10.1.3)' below.";
         default:
             return "";
         }

@@ -1,5 +1,5 @@
 #pragma once
-// Modulation accuracy of the downlink per EN 300 394-1 10.1.3 (see etsi_vem.h):
+// Modulation accuracy of the downlink per TS 100 394-1 10.1.3 (see etsi_vem.h):
 // own tap at the TETRA VFO (144 kS/s, DSP only), TETRA filter, slot grid from
 // the training sequences, exact ideal symbols from CRC-checked bursts,
 // statistics over the last 200 bursts (10.1.3 b).
@@ -81,7 +81,7 @@ public:
     bool draw(const std::string& id, float width, bool& run, bool gainHeld, int freqRef) {
         bool changed = false;
         ImVec4 val = tc::val(), good = tc::good(), bad = tc::bad(), warn = tc::warn();
-        if (ImGui::Checkbox(("Modulation accuracy (EN 300 394-1, 10.1.3)##_vem_run_" + id).c_str(), &run)) { changed = true; }
+        if (ImGui::Checkbox(("Modulation accuracy (TS 100 394-1, 10.1.3)##_vem_run_" + id).c_str(), &run)) { changed = true; }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Vector error per burst as in the conformance test: TETRA filter (root raised\n"
                               "cosine 0.35, 33 symbols), one frequency / phase / timing / amplitude /\n"
@@ -120,7 +120,7 @@ public:
             }
         }
         if (r.paDevBursts > 0) {
-            tw::TextColored(warn, "Phase adjustment bits unlike EN 300 392-2 9.4.4.3.6 in %d of %d bursts", r.paDevBursts, r.n);
+            tw::TextColored(warn, "Phase adjustment bits unlike TS 100 392-2 9.4.4.3.6 in %d of %d bursts", r.paDevBursts, r.n);
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("The base station sets the phase adjustment bits differently from equation 9.14.\n"
                                   "This is a coding matter, not modulation accuracy: the bits as sent are used\n"
@@ -132,7 +132,7 @@ public:
         if (r.n < etsi_vem::Stats::TARGET) { why += "fewer than 200 bursts; "; }
         if (!gainHeld) { why += "receiver gain not held; "; }
         if (freqRef == 0) { why += "no frequency reference (frequency only); "; }
-        if (why.empty()) { tw::TextColored(good, "Measured as in EN 300 394-1 10.1.3"); }
+        if (why.empty()) { tw::TextColored(good, "Measured as in TS 100 394-1 10.1.3"); }
         else {
             why.resize(why.size() - 2);
             tw::TextColored(warn, "Indicative:"); tw::SameTextDisabled("%s", why.c_str());

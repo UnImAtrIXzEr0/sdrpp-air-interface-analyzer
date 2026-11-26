@@ -224,7 +224,7 @@ def test_tetra_chain():
         if best and locked and (best.get("mp_slots", 0) < 20 or mp_quality_max < 3.5):
             problems.append(f"multipath: training sequences not found in the real signal (slots {best.get('mp_slots')}, best quality {mp_quality_max})")
         if best:
-            # modulation accuracy (EN 300 394-1 10.1.3): informative here, the
+            # modulation accuracy (TS 100 394-1 10.1.3): informative here, the
             # short looped recording may hold few CRC-checked bursts
             print(f"  modulation accuracy: grid {best.get('vem_grid')}, measured {best.get('vem_measured')}, "
                   f"rejected {best.get('vem_rejected')}, rms {best.get('vem_rms_pct')} %, peak {best.get('vem_peak_pct')} %, "

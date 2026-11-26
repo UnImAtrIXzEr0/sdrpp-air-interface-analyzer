@@ -82,6 +82,10 @@ namespace dsp {
                     float xr = sym_corr.re - (cb ? -0.7071f : 0.7071f) * lastScale;
                     float xi = sym_corr.im - (ca ? -0.7071f : 0.7071f) * lastScale;
                     sumErrEx += xr * xr + xi * xi;
+                    {
+                        float pex = sqrtf(xr * xr + xi * xi) / (lastScale > 1e-6f ? lastScale : 1e-6f);
+                        if (pex > peakErrEx) { peakErrEx = pex; }
+                    }
                     // I/Q imbalance model in the raw (transmitter) frame:
                     //   r = mu*d + nu*conj(d) + c   (least squares over the block)
                     std::complex<double> d(cb ? -0.70710678 : 0.70710678, ca ? -0.70710678 : 0.70710678);
@@ -123,6 +127,7 @@ namespace dsp {
                         evmPct.store((float)(100.0 * sqrt(sumErr / sumSig)));
                     }
                     evmPeakPct.store(peakErr * 100.0f);
+                    evmPeakExPct.store(peakErrEx * 100.0f);
                     lastScale = (float)(sumMag / merCount);
                     {
                         double mr = sumRawRe / merCount, mi = sumRawIm / merCount;
@@ -137,6 +142,7 @@ namespace dsp {
                     sumErrEx = 0.0;
                     sumErr = sumSig = sumMag = 0.0;
                     peakErr = 0.0f;
+                    peakErrEx = 0.0f;
                     merCount = 0;
                 }
             }

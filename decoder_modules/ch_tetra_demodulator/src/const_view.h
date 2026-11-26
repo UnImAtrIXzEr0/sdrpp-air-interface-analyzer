@@ -1,7 +1,7 @@
 #pragma once
 // TETRA constellation display with the ETSI vector error tolerance drawn
 // around every ideal symbol position.
-//  - EN 300 394-1 (BS transmitter): RMS vector error <= 10 %, peak <= 30 %
+//  - TS 100 394-1 (BS transmitter): RMS vector error <= 10 %, peak <= 30 %
 //  - dots are yellow, and turn green while the measured RMS EVM is within
 //    the limit (with symbol sync)
 

@@ -15,4 +15,4 @@ body:
     id: standard
     attributes:
       label: Standard reference (if a measurement)
-      description: e.g. EN 300 394-1 clause 7.1.3
+      description: e.g. TS 100 394-1 clause 7.1.3

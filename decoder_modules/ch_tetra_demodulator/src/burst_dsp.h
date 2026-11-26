@@ -40,12 +40,16 @@ struct TetraBurstResult {
     int transN = 0;
     float transDbc[3][5] = {};
     float transFloorDbc[5] = {};
-    // switching transients as in EN 300 392-2 6.4.2.2.2 / EN 300 394-1 7.1.4:
-    // peak power through the TETRA filter at -25 / +25 kHz over the ramp-up
-    // [0] and ramp-down [1] period, maximum hold since the last reset (dBc
-    // relative to the mean channel power of the useful part)
+    // switching transients (TS 100 394-1 V4.1.1 7.1.4 and 8.4, TS 100 392-2
+    // V3.10.1 6.4.2.2.2): peak power through the TETRA filter at -25 / +25 kHz
+    // over the ramp-up [0] and ramp-down [1] period, in dBc relative to the
+    // mean channel power of the useful part.
+    //  transPeakAvgDbc: peak of each burst, averaged over the bursts (8.4:
+    //    200 bursts, results averaged) - the value judged against the limit
+    //  transPeakDbc: maximum hold since the last reset (6.4.2.2.2)
     bool transPeakValid = false;
     float transPeakDbc[2][2] = { { NAN, NAN }, { NAN, NAN } };
+    float transPeakAvgDbc[2][2] = { { NAN, NAN }, { NAN, NAN } };
     float transPeakFloorDbc = NAN;   // the same detector on a quiet stretch
     // receiver overload check (option, needs the DL tap): downlink power during
     // the bursts relative to just before / after them. A continuous downlink must
@@ -71,6 +75,7 @@ public:
         transCount = 0;
         transFloorCount = 0;
         for (auto& w : peakHold) { for (auto& v : w) { v = 0.0; } }
+        for (auto& w : peakAvg) { for (auto& v : w) { v = 0.0; } }
         peakFloor = 0.0;
         peakRef = 0.0;
         peakN = 0;
@@ -185,7 +190,12 @@ public:
         }
         if (peakN > 0) {
             acc.transPeakValid = true;
-            for (int r = 0; r < 2; r++) { for (int o = 0; o < 2; o++) { acc.transPeakDbc[r][o] = (float)(10.0 * std::log10((std::max)(peakHold[r][o], 1e-30))); } }
+            for (int r = 0; r < 2; r++) {
+                for (int o = 0; o < 2; o++) {
+                    acc.transPeakDbc[r][o] = (float)(10.0 * std::log10((std::max)(peakHold[r][o], 1e-30)));
+                    acc.transPeakAvgDbc[r][o] = (float)(10.0 * std::log10((std::max)(peakAvg[r][o], 1e-30)));
+                }
+            }
             acc.transPeakFloorDbc = (peakFloor > 0.0 && peakRef > 0.0) ? (float)(10.0 * std::log10(peakFloor / peakRef)) : NAN;
         }
         if (transCount > 0) {
@@ -269,7 +279,14 @@ private:
                     double pk[2][2] = { { peakPower(u0, u1, -25000.0), peakPower(u0, u1, 25000.0) },
                                         { peakPower(d0, d1, -25000.0), peakPower(d0, d1, 25000.0) } };
                     if (pk[0][0] >= 0.0 && pk[1][1] >= 0.0) {
-                        for (int r = 0; r < 2; r++) { for (int o = 0; o < 2; o++) { peakHold[r][o] = (std::max)(peakHold[r][o], pk[r][o] / ref); } }
+                        // running mean over the last avgN bursts, like the averaged profile
+                        int na = (std::min)(peakN + 1, (std::max)(1, avgN));
+                        for (int r = 0; r < 2; r++) {
+                            for (int o = 0; o < 2; o++) {
+                                peakHold[r][o] = (std::max)(peakHold[r][o], pk[r][o] / ref);
+                                peakAvg[r][o] = peakN ? peakAvg[r][o] + (pk[r][o] / ref - peakAvg[r][o]) / na : pk[r][o] / ref;
+                            }
+                        }
                         peakRef = peakN ? peakRef + (ref - peakRef) / (peakN + 1) : ref;
                         peakN++;
                     }
@@ -439,6 +456,7 @@ private:
     std::vector<float> rrcTaps;
     std::map<int, std::vector<std::complex<float>>> rrcShift;
     double peakHold[2][2] = {};
+    double peakAvg[2][2] = {};
     double peakFloor = 0.0, peakRef = 0.0;
     int peakN = 0;
 

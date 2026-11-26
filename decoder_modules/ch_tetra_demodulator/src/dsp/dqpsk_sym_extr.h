@@ -41,7 +41,8 @@ namespace dsp {
         float standarderr = 0;
 
         // Modulation quality over the last SYNC_DETECT_BUF symbols
-        // (decision-directed, amplitude-normalized, per ETSI EN 300 394-1 style)
+        // (decision-directed, amplitude-normalized; a guide value, not the
+        // per-burst method of TS 100 394-1 10.1.3)
         float getMerDb() { return merDb.load(); }
         float getEvmPct() { return evmPct.load(); }
         float getEvmPeakPct() { return evmPeakPct.load(); }
@@ -51,6 +52,8 @@ namespace dsp {
         // MER with the I/Q origin offset removed (shows what the modulator does
         // apart from carrier leakage / receiver DC)
         float getMerExclOffsetDb() { return merExclDb.load(); }
+        // peak vector error with the I/Q origin offset removed (pairs with the MER above)
+        float getEvmPeakExclOffsetPct() { return evmPeakExPct.load(); }
         // Remove the measured I/Q offset before the symbol decisions (helps
         // decoding of transmitters with strong carrier leakage)
         void setIqOffsetCompensation(bool en) { iqComp.store(en); }
@@ -68,6 +71,7 @@ namespace dsp {
         std::atomic<float> merDb { 0.0f };
         std::atomic<float> evmPct { 100.0f };
         std::atomic<float> evmPeakPct { 100.0f };
+        std::atomic<float> evmPeakExPct { 100.0f };
         std::atomic<float> iqOffsetDb { -100.0f };
         std::atomic<float> merExclDb { 0.0f };
         std::atomic<bool> iqComp { false };
@@ -90,6 +94,7 @@ namespace dsp {
         double sumErr = 0.0;
         double sumMag = 0.0;
         float peakErr = 0.0f;
+        float peakErrEx = 0.0f;
         int merCount = 0;
         float lastScale = 1.0f;
 

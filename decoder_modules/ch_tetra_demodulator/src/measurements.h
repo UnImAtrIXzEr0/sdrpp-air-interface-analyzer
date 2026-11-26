@@ -47,6 +47,7 @@ struct TetraMeasSnapshot {
     double absErrHz = 0.0;
     float evmPct = 100.0f;
     float evmPeakPct = 100.0f;
+    float evmPeakExclPct = 100.0f; // peak vector error with the I/Q origin offset removed
     float carrierOffsetHz = 0.0f;
     float carrierPpm = 0.0f;
     double refFreqHz = 0.0;
@@ -331,6 +332,7 @@ private:
         s.iqOffsetDb = _extr->getIqOffsetDb();
         s.evmPct = _extr->getEvmPct();
         s.evmPeakPct = _extr->getEvmPeakPct();
+        s.evmPeakExclPct = _extr->getEvmPeakExclOffsetPct();
         s.symSync = _extr->sync;
         // Narrow the FLL after 2 s of stable symbol sync, widen it on loss
         syncSeconds = s.symSync ? syncSeconds + 1 : 0;

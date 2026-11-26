@@ -36,7 +36,7 @@
 struct TetraBurstSettings {
     int source = 0;            // 0 uplink from SYSINFO, 1 manual frequency, 2 TETRA VFO frequency
     double manualMHz = 430.0;
-    int averages = 200;        // EN 300 394-1 8.4: average power vs. time over 200 bursts
+    int averages = 200;        // TS 100 394-1 8.1.1.1 b1 / 8.1.1.2 b1: average power vs. time over 200 bursts
     float maskRippleDb = 1.0f; // useful part within +-ripple of the burst power
     float maskOffDbc = -40.0f; // before the ramp-up and after the ramp-down
     float maskRampSym = 5.0f;  // max. ramp time (-20 dBc ... -1 dBc) in symbols
@@ -44,11 +44,11 @@ struct TetraBurstSettings {
     bool overloadCheck = false; // receiver overload check: 2nd tap on the downlink (TETRA VFO)
     bool transients = true;    // spectrum during the ramps
     int floorSpan = 0;         // history of the uplink noise: 0 10 min, 1 1 h, 2 6 h, 3 24 h
-    bool stdMask = true;       // time mask of EN 300 392-2 6.4.5 (table 6.8) instead of the user mask
+    bool stdMask = true;       // time mask of TS 100 392-2 6.4.5 (table 6.8) instead of the user mask
     int station = 0;           // 0 mobile station (uplink), 1 base station in discontinuous mode
     bool msClass4 = false;     // MS power class 4 / 4L (transient limit -45 dBc instead of -50 dBc)
-    bool msPowerKnown = false; // transmit power of the MS known (absolute limits -36 dBm need it)
-    float msPowerDbm = 30.0f;  // transmit power of the MS at its antenna connector, dBm
+    bool msPowerKnown = false; // transmit power of the station known (absolute limits -36 dBm need it; MS or BS, name kept for the config)
+    float msPowerDbm = 30.0f;  // transmit power of the station at its antenna connector, dBm
 };
 
 class TetraBurstAnalyzer {
@@ -259,21 +259,22 @@ public:
             ImGui::SetNextItemWidth(90.0f * style::uiScale);
             if (ImGui::InputFloat(("Ramp max. sym##_ba_mrs_" + id).c_str(), &st.maskRampSym, 0.5f, 2.0f, "%.1f")) { st.maskRampSym = std::clamp(st.maskRampSym, 0.5f, 40.0f); changed = true; }
             tw::TextDisabled("User mask (ripple, outside level, -20/-1 dBc ramp time).");
-            if (ImGui::Checkbox(("Check against EN 300 392-2 6.4.5##_ba_std_" + id).c_str(), &st.stdMask)) { changed = true; }
+            if (ImGui::Checkbox(("Check against TS 100 392-2 6.4.5##_ba_std_" + id).c_str(), &st.stdMask)) { changed = true; }
             ImGui::SetNextItemWidth(200.0f * style::uiScale);
             if (ImGui::Combo(("Station##_ba_sta_" + id).c_str(), &st.station, "Mobile station (uplink)\0Base station, discontinuous\0")) { changed = true; }
             if (ImGui::Checkbox(("MS power class 4 / 4L##_ba_c4_" + id).c_str(), &st.msClass4)) { changed = true; }
-            if (ImGui::Checkbox(("MS transmit power known##_ba_pk_" + id).c_str(), &st.msPowerKnown)) { changed = true; }
+            if (ImGui::Checkbox(("Transmit power known##_ba_pk_" + id).c_str(), &st.msPowerKnown)) { changed = true; }
             if (st.msPowerKnown) {
                 tw::SameLineFor(90.0f * style::uiScale + tw::textWidth("dBm") + ImGui::GetStyle().ItemInnerSpacing.x);
                 ImGui::SetNextItemWidth(90.0f * style::uiScale);
                 if (ImGui::InputFloat(("dBm##_ba_pw_" + id).c_str(), &st.msPowerDbm, 1.0f, 3.0f, "%.1f")) { st.msPowerDbm = std::clamp(st.msPowerDbm, -30.0f, 50.0f); changed = true; }
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Output power of the mobile station at its antenna (e.g. 12.6 dBm for 18 mW,\n"
-                                  "32.6 dBm for 1.8 W). Over the air the received level depends on the path,\n"
-                                  "so the absolute limits of EN 300 394-1 (-36 dBm: power outside the burst,\n"
-                                  "switching transients) can only be converted to dBc with this value.");
+                ImGui::SetTooltip("Output power of the mobile or base station at its antenna (e.g. 12.6 dBm for\n"
+                                  "18 mW, 32.6 dBm for 1.8 W). Over the air the received level depends on the path,\n"
+                                  "so the absolute limit of TS 100 394-1 7.1.1.2 / 7.1.2.2 / 7.1.4.2 (no requirement\n"
+                                  "below -36 dBm: power outside the burst, switching transients) can only be\n"
+                                  "converted to dBc with this value.");
             }
             ImGui::TreePop();
         }
@@ -283,8 +284,9 @@ public:
 private:
     static const size_t RING = 1 << 18;   // 1.8 s
 
-    // time mask of EN 300 392-2 V3.8.1 6.4.5 (figure 6.3, table 6.8) on the
-    // averaged profile (EN 300 394-1 8.4: average power vs. time over the bursts)
+    // time mask of TS 100 392-2 V3.10.1 6.4.5 (figure 6.3, table 6.8) on the
+    // averaged profile (TS 100 394-1 V4.1.1 8.1.1.1 b1 / 8.1.1.2 b1: average power
+    // vs. time over the bursts)
     void drawStdMask(const std::string& id, const TetraBurstResult& r, const TetraBurstSettings& st, float levelCal) {
         (void)id;
         ImVec4 val = tc::val(), good = tc::good(), bad = tc::bad();
@@ -304,12 +306,13 @@ private:
         double c = 0.5 * (a + b);
         double sn0 = c - 0.5 * t2 * s8, snmax = c + 0.5 * t2 * s8;
         int i1 = (int)std::floor(sn0 - t1 * s8), i3 = (int)std::ceil(snmax + t3 * s8);
-        // Lmin: BS -40 dBc; MS -70 dBc or -36 dBm, whichever is greater (needs dBm)
-        // Over the air the received level says nothing about the MS output power
+        // Lmin: BS -40 dBc, MS -70 dBc (TS 100 392-2 6.4.5.1 / 6.4.5.2); TS 100 394-1
+        // 7.1.1.2 / 7.1.2.2: no requirement below -36 dBm, for MS and BS (needs dBm).
+        // Over the air the received level says nothing about the output power
         // (path loss), so the -36 dBm rule takes the transmit power entered by the user.
         (void)levelCal;
         float lmin = st.station == 1 ? -40.0f : -70.0f;
-        if (st.station == 0 && st.msPowerKnown) { lmin = (std::max)(lmin, -36.0f - st.msPowerDbm); }
+        if (st.msPowerKnown) { lmin = (std::max)(lmin, -36.0f - st.msPowerDbm); }
         float pkT1 = -200.0f, pkT3 = -200.0f, outBefore = -200.0f, outAfter = -200.0f;
         for (int k = 0; k < n; k++) {
             if (k < i1) { outBefore = (std::max)(outBefore, p[k]); }
@@ -320,14 +323,16 @@ private:
         bool haveAfter = i3 < n - 1, haveBefore = i1 > 0;
         float fl = std::isnan(r.floorDbc) ? -200.0f : r.floorDbc;
         bool floorLimited = fl + 3.0f > lmin;
-        tw::Text("Time mask (EN 300 392-2 6.4.5):");
+        tw::Text("Time mask (TS 100 392-2 6.4.5):");
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Table 6.8 / figure 6.3: ramp-up within t1 = %d symbols before SN0, ramp-down\n"
                               "within t3 = %d symbols after SNmax (useful part t2 = %d symbols). During t1\n"
                               "at most +6 dBc, during t3 at most +3 dBc, outside the mask at most Lmin\n"
                               "(%s). Averaged power profile through the TETRA filter.",
-                              t1, t3, t2, st.station == 1 ? "BS: -40 dBc" : "MS: -70 dBc or -36 dBm, whichever is greater;\n"
-                              "-36 dBm is applied to the MS transmit power entered under Time mask");
+                              t1, t3, t2, st.station == 1 ? "BS: -40 dBc or -36 dBm, whichever is greater;\n"
+                              "-36 dBm is applied to the transmit power entered under Time mask" :
+                              "MS: -70 dBc or -36 dBm, whichever is greater;\n"
+                              "-36 dBm is applied to the transmit power entered under Time mask");
         }
         bool okT1 = pkT1 <= 6.0f, okT3 = pkT3 <= 3.0f;
         tw::Text("  during t1:"); tw::SameTextColored(okT1 ? good : bad, "%+.1f dBc", pkT1); tw::SameTextDisabled("(<= +6)");
@@ -342,7 +347,7 @@ private:
         out(haveAfter, outAfter, " after");
         tw::SameTextDisabled("(Lmin %.0f dBc)", lmin);
         if (st.station == 0 && !st.msPowerKnown) {
-            tw::TextDisabled("  Lmin -70 dBc: enter the MS transmit power (Time mask) for the -36 dBm rule.");
+            tw::TextDisabled("  Lmin -70 dBc: enter the transmit power (Time mask) for the -36 dBm rule.");
         }
         if (floorLimited) {
             tw::TextDisabled("  Measurement floor %.0f dBc is above Lmin: 'outside' can only be checked down to the floor.", fl);
@@ -425,29 +430,36 @@ private:
         }
     }
 
-    // peak at +-25 kHz over the ramps (EN 300 394-1 7.1.4, max hold)
+    // peak at +-25 kHz over the ramps: TS 100 394-1 V4.1.1 8.4 (peak of each burst,
+    // averaged over the bursts) is judged against the limit of 7.1.4.2; the
+    // maximum hold of TS 100 392-2 V3.10.1 6.4.2.2.2 is shown as well
     void drawTransientPeak(const TetraBurstResult& r, const TetraBurstSettings& st) {
         if (!r.transPeakValid) { return; }
-        ImVec4 good = tc::good(), bad = tc::bad(), val = tc::val();
+        ImVec4 good = tc::good(), bad = tc::bad(), warn = tc::warn(), val = tc::val();
         float lim = (st.station == 0 && st.msClass4) ? -45.0f : -50.0f;
-        if (st.station == 0 && st.msPowerKnown) { lim = (std::max)(lim, -36.0f - st.msPowerDbm); }
+        if (st.msPowerKnown) { lim = (std::max)(lim, -36.0f - st.msPowerDbm); }
         float fl = r.transPeakFloorDbc;
         tw::Text("Switching transients (peak, +-25 kHz):");
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Peak power through the TETRA filter at -25 / +25 kHz over the ramp-up and\n"
-                              "ramp-down periods, maximum hold since the last reset, relative to the\n"
-                              "channel power of the useful part (EN 300 394-1 7.1.4).\n"
-                              "Limit: -45 dBc for MS power classes 4 / 4L, -50 dBc otherwise\n"
-                              "(never stricter than -36 dBm: applied to the MS transmit power\n"
+                              "ramp-down periods, relative to the channel power of the useful part.\n"
+                              "First line: peak of each burst, averaged over the bursts (TS 100 394-1 8.4),\n"
+                              "judged against the limit. Second line: maximum hold since the last reset\n"
+                              "(TS 100 392-2 6.4.2.2.2), above the limit marked as a warning.\n"
+                              "Limit (TS 100 394-1 7.1.4.2): -45 dBc for MS power classes 4 / 4L, -50 dBc\n"
+                              "otherwise (never stricter than -36 dBm: applied to the transmit power\n"
                               "entered under Time mask).");
         }
-        auto cell = [&](float v) {
+        auto cell = [&](float v, const ImVec4& over) {
             bool atFloor = !std::isnan(fl) && v <= fl + 3.0f;
-            tw::SameTextColored(atFloor ? val : (v <= lim ? good : bad), "%.1f", v);
+            tw::SameTextColored(atFloor ? val : (v <= lim ? good : over), "%.1f", v);
         };
-        tw::Text("  up:"); cell(r.transPeakDbc[0][0]); tw::SameText("/"); cell(r.transPeakDbc[0][1]);
-        tw::SameText(" down:"); cell(r.transPeakDbc[1][0]); tw::SameText("/"); cell(r.transPeakDbc[1][1]);
+        tw::Text("  mean up:"); cell(r.transPeakAvgDbc[0][0], bad); tw::SameText("/"); cell(r.transPeakAvgDbc[0][1], bad);
+        tw::SameText(" down:"); cell(r.transPeakAvgDbc[1][0], bad); tw::SameText("/"); cell(r.transPeakAvgDbc[1][1], bad);
         tw::SameTextDisabled("dBc (limit %.0f, floor %.0f)", lim, std::isnan(fl) ? 0.0f : fl);
+        tw::Text("  max hold up:"); cell(r.transPeakDbc[0][0], warn); tw::SameText("/"); cell(r.transPeakDbc[0][1], warn);
+        tw::SameText(" down:"); cell(r.transPeakDbc[1][0], warn); tw::SameText("/"); cell(r.transPeakDbc[1][1], warn);
+        tw::SameTextDisabled("dBc");
     }
 
     void drawFloor(const std::string& id, float width, const TetraConstellationView::Palette& pal, const TetraBurstResult& r,
@@ -748,7 +760,7 @@ private:
     std::mutex ringMtx;
     std::vector<std::complex<float>> ringRaw, ringFilt, ringDl;
     uint64_t wIdx = 0, dlIdx = 0;
-    // uplink envelope through the TETRA filter (EN 300 392-2 6.4.5: power vs. time
+    // uplink envelope through the TETRA filter (TS 100 392-2 6.4.5: power vs. time
     // is measured through the root raised cosine filter 0.35); downlink (overload check)
     tetra_sp::StreamFir ulFilter { tetra_sp::rrcTaps(33) };
     tetra_sp::ChanFilter dlFilter;

@@ -1,5 +1,5 @@
 #pragma once
-// Constellation display for pi/4-DQPSK with the ETSI EN 300 392-2 modulation
+// Constellation display for pi/4-DQPSK with the ETSI TS 100 392-2 modulation
 // accuracy limits drawn as target zones around the ideal symbol positions:
 //   inner zone: vector error magnitude 10 % (RMS limit)
 //   outer ring: vector error magnitude 30 % (peak limit)

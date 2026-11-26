@@ -54,7 +54,7 @@ namespace tetra_sp {
         int pos = 0;
     };
 
-    // TETRA filter of the sampling system (EN 300 394-1 B.1.2.2): root raised
+    // TETRA filter of the sampling system (TS 100 394-1 B.1.2.2): root raised
     // cosine 0.35, 'span' symbols (>= 30), unity DC gain
     inline std::vector<float> rrcTaps(int span = 33, int sps = SPS) {
         const double a = 0.35;
@@ -97,7 +97,7 @@ namespace tetra_sp {
         int pos = 0;
     };
 
-    // pi/4-DQPSK phase change for a dibit (EN 300 392-2: 00 +pi/4, 01 +3pi/4, 11 -3pi/4, 10 -pi/4)
+    // pi/4-DQPSK phase change for a dibit (TS 100 392-2 5.4, table 5.1: 00 +pi/4, 01 +3pi/4, 11 -3pi/4, 10 -pi/4)
     inline double dphi(int b1, int b2) {
         if (!b1 && !b2) { return PI_D / 4; }
         if (!b1 && b2) { return 3 * PI_D / 4; }
