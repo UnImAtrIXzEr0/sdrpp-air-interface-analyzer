@@ -5734,6 +5734,19 @@ private:
             double ppm = vemRun ? vemAn.get().clockPpm : NAN;
             double sps = std::isfinite(ppm) ? etsi_vem::SPS * (1.0 + ppm * 1e-6) : 0.0;
             burstAn.setUlVem(burstSt.station == 0, (uint16_t)cm.mcc, (uint16_t)cm.mnc, (uint8_t)cm.cc, sps);
+            // uplink values for the CSV log
+            TetraUlLog ul;
+            if (burstRun && burstAn.isRunning()) {
+                const TetraBurstResult::UlVem u = burstAn.get().ulVem;
+                if (u.on && u.n > 0) {
+                    ul.valid = true;
+                    ul.n = u.n; ul.chkN = u.chk.n; ul.decN = u.dec.n; ul.othN = u.oth.n;
+                    ul.chkRmsMax = u.chk.rmsMax; ul.chkPeak = u.chk.peakMax; ul.chkC0Max = u.chk.c0Max; ul.decRmsMax = u.dec.rmsMax;
+                    ul.freqMean = u.freqMean; ul.freqMaxAbs = u.freqMaxAbs;
+                    if (cm.absErrValid && cm.dlFreq > 0 && f > 1e6) { ul.msVsBs = u.freqMean - cm.absErrHz * f / (double)cm.dlFreq; }
+                }
+            }
+            meas.setUlLog(ul);
         }
         burstAn.loop(enabled && burstRun, f, dlTap);
         clockCal.loop(enabled && vfo != nullptr && decoder_mode == 0, meas.get());
