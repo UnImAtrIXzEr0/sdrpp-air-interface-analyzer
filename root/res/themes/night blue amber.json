@@ -56,7 +56,7 @@
     "NavWindowingDimBg": "#00000055",
     "ModalWindowDimBg": "#00000077",
     "WaterfallBackground": "#08111BFF",
-    "FFTHoldColor": "#F2C46BFF",
+    "FFTHoldColor": "#5AAEEAFF",
     "FrameBorderSize": "1",
     "WindowBorderSize": "1",
     "PopupBorderSize": "1",
@@ -79,5 +79,10 @@
     "ValueText": "#F2C46BFF",
     "ValueGood": "#5FD08AFF",
     "ValueWarn": "#FF8A3DFF",
-    "ValueBad": "#FF5C5CFF"
+    "ValueBad": "#FF5C5CFF",
+    "SpectrumTrace": "#F2C46BFF",
+    "SpectrumGrid": "#1C3048FF",
+    "SpectrumFillTop": "#E3A33B59",
+    "SpectrumFillBottom": "#E3A33B00",
+    "WaterfallColorMap": "Night blue (ember)"
 }

@@ -2,6 +2,7 @@
 #include <gui/gui.h>
 #include <core.h>
 #include <gui/style.h>
+#include <gui/menus/display.h>
 #include <fstream>
 #include <cstring>
 #include <imgui.h>
@@ -91,6 +92,12 @@ namespace thememenu {
         core::configManager.acquire();
         core::configManager.conf["theme"] = themeNames[themeId];
         core::configManager.release(true);
+
+        // A theme that brings its own waterfall colour map selects it when chosen;
+        // the colour map can still be changed by hand afterwards (Display menu)
+        if (!gui::themeManager.waterfallColorMap.empty()) {
+            displaymenu::selectColorMap(gui::themeManager.waterfallColorMap);
+        }
     }
 
     void draw(void* ctx) {

@@ -12,6 +12,9 @@ namespace displaymenu {
     void init();
     void checkKeybinds();
     void draw(void* ctx);
+    // Selects a waterfall colour map by name (used when a theme brings its own);
+    // returns false if no such map is loaded
+    bool selectColorMap(const std::string& name);
     extern bool phoneLayout;
     // touch mode for modules (functions are exported from the core DLL, data is not)
     bool touchMode();

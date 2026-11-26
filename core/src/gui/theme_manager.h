@@ -24,6 +24,17 @@ public:
     ImVec4 fftHoldColor = ImVec4(0.0f, 1.0f, 0.75f, 1.0f);
     ImVec4 clearColor = ImVec4(0.0666f, 0.0666f, 0.0666f, 1.0f);
 
+    // Optional spectrum look (SpectrumTrace, SpectrumGrid, SpectrumFillTop/-Bottom):
+    // without them the trace uses PlotLines, the grid is grey and the shadow is flat
+    bool hasSpectrumTrace = false;
+    ImVec4 spectrumTrace = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    ImVec4 spectrumGrid = ImVec4(50.0f / 255.0f, 50.0f / 255.0f, 50.0f / 255.0f, 1.0f);
+    bool hasSpectrumFill = false;
+    ImVec4 spectrumFillTop = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    ImVec4 spectrumFillBottom = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    // Colour map the theme selects for the waterfall when it is chosen (empty: none)
+    std::string waterfallColorMap;
+
     // Optional extra colours for plugin displays (keys starting with
     // "Constellation", "Vfo" or "Value", e.g. ConstellationBg, VfoBandwidth, ValueText). Empty when the theme has none.
     std::map<std::string, ImVec4> extraColors;

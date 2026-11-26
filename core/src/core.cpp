@@ -981,9 +981,13 @@ int sdrpp_main(int argc, char* argv[]) {
             core::configManager.conf["theme"] = "RoSc dark";
         }
     }
-    // v0.26: a new installation starts with "Night blue amber" (the start-up
-    // migrations above would set "RoSc light"); existing configs keep their theme
-    if (freshConfig) { core::configManager.conf["theme"] = "Night blue amber"; }
+    // v0.26: a new installation starts with "Night blue amber" and its waterfall
+    // colour map (the start-up migrations above would set "RoSc light");
+    // existing configs keep their theme and colour map
+    if (freshConfig) {
+        core::configManager.conf["theme"] = "Night blue amber";
+        core::configManager.conf["colorMap"] = "Night blue (ember)";
+    }
 
     // Android can't load just any .so file. This means we have to hardcode the name of the modules
 #ifdef __ANDROID__

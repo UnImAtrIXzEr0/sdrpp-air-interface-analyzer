@@ -79,5 +79,10 @@
     "ValueText": "#F2D58AFF",
     "ValueGood": "#5FD08AFF",
     "ValueWarn": "#F5A742FF",
-    "ValueBad": "#FF6B6BFF"
+    "ValueBad": "#FF6B6BFF",
+    "SpectrumTrace": "#5AAEEAFF",
+    "SpectrumGrid": "#1C3048FF",
+    "SpectrumFillTop": "#5AAEEA66",
+    "SpectrumFillBottom": "#5AAEEA00",
+    "WaterfallColorMap": "Night blue (deep)"
 }
