@@ -10,6 +10,7 @@
 #include <dsp/convert/stereo_to_mono.h>
 #include <utils/flog.h>
 #include <RtAudio.h>
+#include <memory>
 #include <config.h>
 #include <core.h>
 #include <utils/stream_tracker.h>
@@ -308,8 +309,13 @@ private:
                     unsigned int inputBufferFrames = sampleRate / 60 / microFrames;
 
                     try {
-                        audio2.openStream(nullptr, &inputParameters, RTAUDIO_FLOAT32, sampleRate, &inputBufferFrames, &microphoneCallback, this, &inputOpts);
-                        audio2.startStream();
+                        // Created on first use, not at load time: probing the
+                        // audio APIs (JACK first) inside dlopen() hangs with
+                        // jack2 (issue #2). Same API as `audio`, so the device
+                        // IDs match.
+                        if (!audio2) { audio2 = std::make_unique<RtAudio>(audio.getCurrentApi()); }
+                        audio2->openStream(nullptr, &inputParameters, RTAUDIO_FLOAT32, sampleRate, &inputBufferFrames, &microphoneCallback, this, &inputOpts);
+                        audio2->startStream();
                     }
                     catch (const std::runtime_error& e) {
                         flog::error("Could not open INPUT audio device: {}", e.what());
@@ -354,7 +360,7 @@ private:
                 flog::info("Stopping RtAudio-2 stream p.3");
                 microphone.stopWriter();
                 flog::info("Stopped RtAudio stream p.3");
-                audio2.closeStream();
+                audio2->closeStream();
                 microphone.clearWriteStop();
                 audio2Owner = nullptr;
             }
@@ -514,12 +520,12 @@ private:
     unsigned int sampleRate = 48000;
 
     RtAudio audio;
-    static RtAudio audio2;
+    static std::unique_ptr<RtAudio> audio2;
     static std::atomic<int> audio2RefCount;
     static AudioSink* audio2Owner;
 };
 
-RtAudio AudioSink::audio2;
+std::unique_ptr<RtAudio> AudioSink::audio2;
 std::atomic<int> AudioSink::audio2RefCount{0};
 AudioSink* AudioSink::audio2Owner{nullptr};
 
