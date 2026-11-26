@@ -27,6 +27,7 @@ namespace ui_text {
             { "VIEW", "ANSICHT" },
             { "SETUP", "EINRICHTUNG" },
             { "View:", "Ansicht:" },
+            { "Page %d/%d", "Seite %d/%d" },
             // status bar
             { "Sync", "Sync" },
             { "Locked", "Eingerastet" },

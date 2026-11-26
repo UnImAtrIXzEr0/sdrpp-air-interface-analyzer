@@ -594,7 +594,8 @@ public:
                        ", \"frames\": " + std::to_string(frameCount.load()) +
                        ", \"menuDisabled\": " + (gui::mainWindow.menuDisabled ? "true" : "false") +
                        ", \"drivePoints\": " + std::to_string(drivePtsShown.load()) +
-                       ", \"mapTextures\": " + std::to_string(mapTexShown.load()) + "}";
+                       ", \"mapTextures\": " + std::to_string(mapTexShown.load()) +
+                       ", \"overflow\": \"" + overflowText() + "\"}";
             }
             else { return "{\"status\": \"error\", \"message\": \"inst ui|mode|view|lang|settings|rf|drive|site|tiles|state <value>\"}"; }
             return "{\"status\": \"ok\"}";
@@ -856,13 +857,19 @@ private:
             ImGui::EndTable();
         }
     }
-    static void drawEventsBody(TetraDemodulatorModule* _this) {
+    // paged (instrument view dialog): all events, as many lines per page as fit; classic: the newest 30
+    static void drawEventsBody(TetraDemodulatorModule* _this, bool paged = false) {
         ImVec4 warn = tc::warn();
         auto ev = _this->meas.getEvents();
-        if (ImGui::SmallButton(CONCAT("Clear##_tetra_evclr_", _this->name))) { _this->meas.clearEvents(); ev.clear(); }
+        const std::string pgId = "ev" + _this->name;
+        int perPage = (int)std::floor((ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing()) / ImGui::GetTextLineHeightWithSpacing());
+        ListPage lp = paged ? _this->listPage(pgId, (int)ev.size(), perPage) : ListPage{ 0, (std::min)((int)ev.size(), 30) };
+        if (ImGui::SmallButton(CONCAT("Clear##_tetra_evclr_", _this->name))) { _this->meas.clearEvents(); ev.clear(); lp.count = 0; }
+        if (paged) { _this->pageBar(pgId, lp, true); }
         if (ev.empty()) { tw::TextDisabled("no events"); }
-        int shown = 0;
-        for (auto it = ev.rbegin(); it != ev.rend() && shown < 30; ++it, ++shown) {
+        ImGui::BeginGroup();
+        for (int i = lp.first; i < lp.first + lp.count && i < (int)ev.size(); i++) {
+            auto it = ev.rbegin() + i;   // newest first
             struct tm lt;
 #ifdef _WIN32
             localtime_s(&lt, &it->t);
@@ -876,6 +883,8 @@ private:
             if (isLoss) { tw::TextColored(warn, "%s", it->text.c_str()); }
             else { ImGui::TextUnformatted(it->text.c_str()); }
         }
+        ImGui::EndGroup();
+        if (paged) { _this->pageWheel(pgId, lp); }
     }
     static void drawLevelCal(TetraDemodulatorModule* _this, float menuWidth) {
         // Level calibration
@@ -3836,6 +3845,25 @@ private:
         ImGui::EndChild();
     }
     void drawInstSide() {
+        // windows whose content does not fit (would scroll) in the last frame: the
+        // instrument view has none (checked by the headless test, "inst state")
+        {
+            std::string ov;
+            for (ImGuiWindow* win : ImGui::GetCurrentContext()->Windows) {
+                if (!win->WasActive || win->Hidden) { continue; }
+                if (win->ScrollMax.x > 0.5f || win->ScrollMax.y > 0.5f) {
+                    std::string n = win->Name;
+                    size_t h = n.find("###");
+                    if (h != std::string::npos) { n = n.substr(0, h); }
+                    for (auto& c : n) { if (c == '"' || c == '\\' || (unsigned char)c < 0x20) { c = '_'; } }
+                    char b[64];
+                    snprintf(b, sizeof(b), " %.0fx%.0f", win->ScrollMax.x, win->ScrollMax.y);
+                    ov += (ov.empty() ? "" : "; ") + n + b;
+                }
+            }
+            std::lock_guard<std::mutex> lck(overflowMtx);
+            overflowList = ov;
+        }
         ImGui::BeginChild(CONCAT("##_inst_soft_", name), ImVec2(0, 0), true);
         drawSoftkeys();
         ImGui::EndChild();
@@ -4996,7 +5024,7 @@ private:
         bool open = true;
         std::string title = std::string(ui_text::T("Events")) + "###_inst_ev_dlg_" + name;
         if (ImGui::BeginPopupModal(title.c_str(), &open)) {
-            drawEventsBody(this);
+            drawEventsBody(this, true);
             ImGui::EndPopup();
         }
     }
@@ -6020,12 +6048,26 @@ private:
         }
         if (ImGui::BeginTabBar(CONCAT("##_tetra_trtabs_", name))) {
             if (ImGui::BeginTabItem(CONCAT("Over time##_tetra_trt0_", name), nullptr, tabReq == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
-                if (instUi) { trendView.fitH = mainFlex(120.0f * style::uiScale, trendView.nominalH(), 3.0f); }
+                // instrument view: the panels fill the main view; below 50 px per panel
+                // the note and the timeslot table below are left out instead
+                bool showTs = !trendView.fileMode;
+                if (instUi) {
+                    const float k = style::uiScale;
+                    float nh = trendView.nominalH();
+                    float minP = (nh - 18.0f * k) * (50.0f / 78.0f) + 18.0f * k;
+                    float rest = mainFlexRest[IV_TREND];
+                    float restNoTs = rest - (trTsShown ? trTsH : 0.0f);
+                    if (showTs && rest > 0.0f && trTsH > 0.0f) { showTs = mainFlexAvail - restNoTs - trTsH >= minP; }
+                    trendView.fitH = mainFlex(minP, nh, 3.0f);
+                }
                 trendView.draw("##_tetra_trplot_" + name, width, meas.trend(), constView.pal);
-                if (!trendView.fileMode) {
+                if (showTs) {
+                    float y0 = ImGui::GetCursorPosY();
                     tw::TextDisabled("Last 24 h kept in memory; longer: Start CSV log (Measurements)\nand open the file here later.");
                     drawTimeslotTable(width);
+                    trTsH = ImGui::GetCursorPosY() - y0;
                 }
+                trTsShown = showTs;
                 ImGui::EndTabItem();
             }
             bool evalTab = false;
@@ -6535,6 +6577,63 @@ private:
         else { snprintf(buf, n, "%ldh", ago / 3600); }
     }
 
+    // ---- instrument view: lists are paged instead of scrolled ----
+    // rows per page from the height (header row included), page bar "<  Page 2/5  >"
+    // and the mouse wheel over the list turn the pages; the page is kept per list
+    struct ListPage { int first = 0, count = 0, page = 0, pages = 1; };
+    ListPage listPage(const std::string& id, int total, int perPage) {
+        ListPage lp;
+        perPage = (std::max)(perPage, 1);
+        lp.pages = (std::max)(1, (total + perPage - 1) / perPage);
+        int& pg = listPages[id];
+        pg = std::clamp(pg, 0, lp.pages - 1);
+        lp.page = pg;
+        lp.first = pg * perPage;
+        lp.count = (std::min)(perPage, total - lp.first);
+        return lp;
+    }
+    static float listRowH() { return ImGui::GetTextLineHeight() + ImGui::GetStyle().CellPadding.y * 2.0f; }
+    // rows that fit into height (one header row); with a page bar line when they do not all fit
+    static int listRowsFit(float height, int total, bool barOwnLine) {
+        float rh = listRowH();
+        int n = (int)std::floor((height - rh) / rh);
+        if (barOwnLine && total > n) { n = (int)std::floor((height - rh - ImGui::GetFrameHeightWithSpacing()) / rh); }
+        return (std::max)(n, 1);
+    }
+    void pageBar(const std::string& id, const ListPage& lp, bool sameLine) {
+        if (lp.pages <= 1) { return; }
+        char t[48];
+        snprintf(t, sizeof(t), ui_text::T("Page %d/%d"), lp.page + 1, lp.pages);
+        float bw = ImGui::CalcTextSize("<").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float need = ImGui::CalcTextSize(t).x + 2.0f * bw + 4.0f * ImGui::GetStyle().ItemSpacing.x;
+        if (sameLine) { ImGui::SameLine((std::max)(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - need)); }
+        int& pg = listPages[id];
+        if (ImGui::SmallButton(("<##_pg_prev_" + id).c_str()) && pg > 0) { pg--; }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(t);
+        ImGui::SameLine();
+        if (ImGui::SmallButton((">##_pg_next_" + id).c_str()) && pg < lp.pages - 1) { pg++; }
+    }
+    // after the list: the mouse wheel over it turns the pages
+    void pageWheel(const std::string& id, const ListPage& lp) {
+        if (lp.pages <= 1 || !ImGui::IsMouseHoveringRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax())) { return; }
+        float wh = ImGui::GetIO().MouseWheel;
+        int& pg = listPages[id];
+        if (wh < 0.0f && pg < lp.pages - 1) { pg++; }
+        if (wh > 0.0f && pg > 0) { pg--; }
+    }
+    // columns that do not fit into the width are switched off, in the order of 'drop'
+    static void fitColumns(float avail, const std::vector<float>& w, const std::vector<int>& drop, std::vector<bool>& on) {
+        on.assign(w.size(), true);
+        float sum = 0.0f;
+        for (float x : w) { sum += x; }
+        for (int c : drop) {
+            if (sum <= avail) { break; }
+            on[c] = false;
+            sum -= w[c];
+        }
+    }
+
     // state of the name lists, download and reload (Settings -> Name lists, classic stations section)
     void drawNameListButtons(float menuWidth) {
         tw::TextDisabled("%s", radioid.status().c_str());
@@ -6557,6 +6656,8 @@ private:
     }
 
     void drawSubscribersBody(float menuWidth, int visibleRows) {
+        // instrument view (strip, tile): paged, columns fitted to the width, no scrolling
+        const bool paged = instUi && visibleRows == 0;
         // Name databases: download / reload in Settings -> Name lists (instrument view)
         bool listButtons = !instUi;
         if (!listButtons) {
@@ -6584,6 +6685,8 @@ private:
         ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX |
                                 ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
                                 ImGuiTableFlags_Sortable | ImGuiTableFlags_SortTristate;
+        if (paged) { flags &= ~(ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX); }
+        auto colFlags = [&](const std::vector<bool>& on, int c) { return on[c] ? 0 : ImGuiTableColumnFlags_Disabled; };
         // sort 'v' (rows with precomputed keys) by the table's sort specs; key(a, b, column user id) < 0 if a before b
         auto sortRows = [](auto& v, auto key) {
             ImGuiTableSortSpecs* ss = ImGui::TableGetSortSpecs();
@@ -6610,18 +6713,28 @@ private:
         // ---- Stations ----
         std::string stTitle = "Stations (" + std::to_string(stations.size()) + ")###_tetra_tab_st_" + name;
         if (ImGui::BeginTabItem(stTitle.c_str())) {
-            if (ImGui::SmallButton(CONCAT("Clear all##_tetra_subs_clr_", name))) { subscribers.clear(); stations.clear(); }
+            const std::string pgId = "st" + name;
+            float tabH = paged ? ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() : 0.0f;
+            ListPage lp = paged ? listPage(pgId, (int)stations.size(), listRowsFit(tabH, (int)stations.size(), false)) : ListPage{ 0, (int)stations.size() };
+            if (ImGui::SmallButton(CONCAT("Clear all##_tetra_subs_clr_", name))) { subscribers.clear(); stations.clear(); lp.count = 0; }
+            if (paged) { pageBar(pgId, lp, true); }
             float minSt = colW("16777215") + colW("ISSI") + colW("DB0XXX-12") + colW("4CE") + colW("59m") + 3 * colW("talking in 2620001");
-            if (ImGui::BeginTable(CONCAT("##_tetra_subs_tab_", name), 8, flags, ImVec2(menuWidth, tableHeight((int)stations.size())), innerW(minSt))) {
+            std::vector<bool> on(8, true);
+            if (paged) {
+                // dropped first: Info, Type, Groups, Seen, TS (ISSI, Call and Activity stay)
+                fitColumns(menuWidth, { colW("16777215"), colW("ISSI"), colW("DB0XXX-12"), colW("4CE"), colW("59m"),
+                                        colW("talking in 2620001"), colW("talking in 2620001"), colW("talking in 2620001") }, { 7, 1, 5, 4, 3 }, on);
+            }
+            if (ImGui::BeginTable(CONCAT("##_tetra_subs_tab_", name), 8, flags, ImVec2(menuWidth, paged ? 0.0f : tableHeight((int)stations.size())), paged ? 0.0f : innerW(minSt))) {
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableSetupColumn("ISSI", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide, colW("16777215"), 0);
-                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, colW("ISSI"), 1);
+                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 1), colW("ISSI"), 1);
                 ImGui::TableSetupColumn("Call", ImGuiTableColumnFlags_WidthFixed, colW("DB0XXX-12"), 2);
-                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed, colW("4CE"), 3);
-                ImGui::TableSetupColumn("Seen", ImGuiTableColumnFlags_WidthFixed, colW("59m"), 4);
-                ImGui::TableSetupColumn("Groups (scan list)", ImGuiTableColumnFlags_WidthStretch, 1.0f, 6);
+                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 3), colW("4CE"), 3);
+                ImGui::TableSetupColumn("Seen", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 4), colW("59m"), 4);
+                ImGui::TableSetupColumn("Groups (scan list)", ImGuiTableColumnFlags_WidthStretch | colFlags(on, 5), 1.0f, 6);
                 ImGui::TableSetupColumn("Activity", ImGuiTableColumnFlags_WidthStretch, 1.2f, 5);
-                ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_WidthStretch, 1.0f, 7);
+                ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_WidthStretch | colFlags(on, 7), 1.0f, 7);
                 ImGui::TableHeadersRow();
                 struct StRow { const TetraSubscriber* s; std::string call, info, act; };
                 std::vector<StRow> rows;
@@ -6644,7 +6757,8 @@ private:
                     default: return cmpStr(a.info, b.info);
                     }
                 });
-                for (auto& row : rows) {
+                for (int ri = lp.first; ri < lp.first + lp.count && ri < (int)rows.size(); ri++) {
+                    const StRow& row = rows[ri];
                     const TetraSubscriber& sub = *row.s;
                     const std::string& call = row.call;
                     const std::string& info = row.info;
@@ -6701,6 +6815,7 @@ private:
                     tw::TextU(info.c_str());
                 }
                 ImGui::EndTable();
+                if (paged) { pageWheel(pgId, lp); }
             }
             ImGui::EndTabItem();
         }
@@ -6709,16 +6824,26 @@ private:
         std::string grTitle = "Groups (" + std::to_string(groups.size()) + ")###_tetra_tab_gr_" + name;
         if (ImGui::BeginTabItem(grTitle.c_str())) {
             float minGr = colW("16777215") + colW("TETRA Oberbayern") + colW("4E") + colW("59m") + 2 * colW("2620001 DB0XXX") + colW("Attached");
-            if (ImGui::BeginTable(CONCAT("##_tetra_grp_tab_", name), 8, flags, ImVec2(menuWidth, tableHeight((int)groups.size())), innerW(minGr + colW("10000001, 10000002")))) {
+            const std::string pgId = "gr" + name;
+            ListPage lp = paged ? listPage(pgId, (int)groups.size(), listRowsFit(ImGui::GetContentRegionAvail().y, (int)groups.size(), true))
+                                : ListPage{ 0, (int)groups.size() };
+            if (paged) { pageBar(pgId, lp, false); }
+            std::vector<bool> on(8, true);
+            if (paged) {
+                // dropped first: Attached by, Last talker, Attached, Seen, TS
+                fitColumns(menuWidth, { colW("16777215"), colW("TETRA Oberbayern"), colW("4E"), colW("59m"), colW("2620001 DB0XXX"),
+                                        colW("2620001 DB0XXX"), colW("Attached"), colW("10000001, 10000002") }, { 7, 5, 6, 3, 2 }, on);
+            }
+            if (ImGui::BeginTable(CONCAT("##_tetra_grp_tab_", name), 8, flags, ImVec2(menuWidth, paged ? 0.0f : tableHeight((int)groups.size())), paged ? 0.0f : innerW(minGr + colW("10000001, 10000002")))) {
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableSetupColumn("GSSI", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide, colW("16777215"), 0);
                 ImGui::TableSetupColumn("Talkgroup", ImGuiTableColumnFlags_WidthStretch, 1.2f, 1);
-                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed, colW("4E"), 2);
-                ImGui::TableSetupColumn("Seen", ImGuiTableColumnFlags_WidthFixed, colW("59m"), 3);
+                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 2), colW("4E"), 2);
+                ImGui::TableSetupColumn("Seen", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 3), colW("59m"), 3);
                 ImGui::TableSetupColumn("Talker", ImGuiTableColumnFlags_WidthStretch, 1.0f, 4);
-                ImGui::TableSetupColumn("Last talker", ImGuiTableColumnFlags_WidthStretch, 1.0f, 5);
-                ImGui::TableSetupColumn("Attached", ImGuiTableColumnFlags_WidthFixed, colW("Attached"), 6);
-                ImGui::TableSetupColumn("Attached by", ImGuiTableColumnFlags_WidthStretch, 1.2f, 7);
+                ImGui::TableSetupColumn("Last talker", ImGuiTableColumnFlags_WidthStretch | colFlags(on, 5), 1.0f, 5);
+                ImGui::TableSetupColumn("Attached", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 6), colW("Attached"), 6);
+                ImGui::TableSetupColumn("Attached by", ImGuiTableColumnFlags_WidthStretch | colFlags(on, 7), 1.2f, 7);
                 ImGui::TableHeadersRow();
                 struct GrRow { const TetraSubscriber* g; std::string info; int members; std::string by, byTip; };
                 std::vector<GrRow> grows;
@@ -6750,7 +6875,8 @@ private:
                     default: return cmpStr(a.by, b.by);
                     }
                 });
-                for (auto& grow : grows) {
+                for (int ri = lp.first; ri < lp.first + lp.count && ri < (int)grows.size(); ri++) {
+                    const GrRow& grow = grows[ri];
                     const TetraSubscriber& g = *grow.g;
                     const std::string& info = grow.info;
                     long ago = (long)(now - g.lastSeen);
@@ -6791,6 +6917,7 @@ private:
                     } else { tw::TextDisabled("-"); }
                 }
                 ImGui::EndTable();
+                if (paged) { pageWheel(pgId, lp); }
             }
             ImGui::EndTabItem();
         }
@@ -6799,27 +6926,37 @@ private:
         std::vector<TetraTrafficEntry> traffic = subscribers.trafficSnapshot();
         std::string trTitle = "Traffic (" + std::to_string(traffic.size()) + ")###_tetra_tab_tr_" + name;
         if (ImGui::BeginTabItem(trTitle.c_str())) {
-            if (ImGui::SmallButton(CONCAT("Clear##_tetra_tr_clr_", name))) { subscribers.clearTraffic(); traffic.clear(); }
+            // rows shown (call control can be hidden); newest first
+            std::vector<const TetraTrafficEntry*> rows;
+            rows.reserve(traffic.size());
+            for (auto it = traffic.rbegin(); it != traffic.rend(); ++it) {
+                bool control = it->pdu != "D-SDS-DATA" && it->pdu != "D-STATUS" && it->pdu != "encrypted";
+                if (trafficHideControl && control) { continue; }
+                rows.push_back(&*it);
+            }
+            const std::string pgId = "tr" + name;
+            float tabH = paged ? ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() : 0.0f;
+            ListPage lp = paged ? listPage(pgId, (int)rows.size(), listRowsFit(tabH, (int)rows.size(), false)) : ListPage{ 0, (int)rows.size() };
+            if (ImGui::SmallButton(CONCAT("Clear##_tetra_tr_clr_", name))) { subscribers.clearTraffic(); traffic.clear(); rows.clear(); lp.count = 0; }
             tw::SameCheckbox(CONCAT("Hide call control##_tetra_tr_cc_", name), &trafficHideControl);
+            if (paged) { pageBar(pgId, lp, true); }
             float minTr = colW("00:00:00") + colW("TS") + colW("D-TX-GRANTED") + 2 * colW("2620001 DB0XXX") + colW("SDS text: Hello World");
-            if (ImGui::BeginTable(CONCAT("##_tetra_tr_tab2_", name), 6, flags, ImVec2(menuWidth, tableHeight((int)traffic.size())), innerW(minTr))) {
+            std::vector<bool> on(6, true);
+            if (paged) {
+                // dropped first: TS, PDU (time, to, from and content stay)
+                fitColumns(menuWidth, { colW("00:00:00"), colW("2620001 DB0XXX"), colW("D-TX-GRANTED"), colW("2620001 DB0XXX"), colW("TS"),
+                                        colW("SDS text: Hello World") }, { 4, 2 }, on);
+            }
+            if (ImGui::BeginTable(CONCAT("##_tetra_tr_tab2_", name), 6, flags, ImVec2(menuWidth, paged ? 0.0f : tableHeight((int)traffic.size())), paged ? 0.0f : innerW(minTr))) {
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide, colW("00:00:00"), 0);
                 ImGui::TableSetupColumn("To", ImGuiTableColumnFlags_WidthStretch, 0.8f, 1);
-                ImGui::TableSetupColumn("PDU", ImGuiTableColumnFlags_WidthFixed, colW("D-TX-GRANTED"), 2);
+                ImGui::TableSetupColumn("PDU", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 2), colW("D-TX-GRANTED"), 2);
                 ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthStretch, 0.8f, 3);
-                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed, colW("TS"), 4);
+                ImGui::TableSetupColumn("TS", ImGuiTableColumnFlags_WidthFixed | colFlags(on, 4), colW("TS"), 4);
                 ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthStretch, 2.0f, 5);
                 ImGui::TableHeadersRow();
-                // newest first; only the visible rows are drawn (up to 1000 entries)
-                std::vector<const TetraTrafficEntry*> rows;
-                rows.reserve(traffic.size());
-                for (auto it = traffic.rbegin(); it != traffic.rend(); ++it) {
-                    bool control = it->pdu != "D-SDS-DATA" && it->pdu != "D-STATUS" && it->pdu != "encrypted";
-                    if (trafficHideControl && control) { continue; }
-                    rows.push_back(&*it);
-                }
-                // unsorted: newest first (as received)
+                // only the visible rows are drawn (up to 1000 entries); unsorted: newest first (as received)
                 sortRows(rows, [&](const TetraTrafficEntry* a, const TetraTrafficEntry* b, int col) {
                     switch (col) {
                     case 0: return cmpNum((double)a->t, (double)b->t);
@@ -6830,9 +6967,7 @@ private:
                     default: return cmpStr(a->text, b->text);
                     }
                 });
-                ImGuiListClipper clipper;
-                clipper.Begin((int)rows.size());
-                while (clipper.Step()) for (int ri = clipper.DisplayStart; ri < clipper.DisplayEnd; ri++) {
+                auto trRow = [&](int ri) {
                     const TetraTrafficEntry* it = rows[ri];
                     bool control = it->pdu != "D-SDS-DATA" && it->pdu != "D-STATUS" && it->pdu != "encrypted";
                     struct tm lt;
@@ -6868,8 +7003,18 @@ private:
                     if (it->hasPos && ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("Position %.5f, %.5f", it->lat, it->lon);
                     }
+                };
+                // instrument view: the rows of the page; classic: scrolling, only the visible rows
+                if (paged) {
+                    for (int ri = lp.first; ri < lp.first + lp.count && ri < (int)rows.size(); ri++) { trRow(ri); }
+                }
+                else {
+                    ImGuiListClipper clipper;
+                    clipper.Begin((int)rows.size());
+                    while (clipper.Step()) { for (int ri = clipper.DisplayStart; ri < clipper.DisplayEnd; ri++) { trRow(ri); } }
                 }
                 ImGui::EndTable();
+                if (paged) { pageWheel(pgId, lp); }
             }
             ImGui::EndTabItem();
         }
@@ -7131,6 +7276,15 @@ private:
     // main view: available height, height used by the flexible plot, other parts per view (last frame)
     float mainFlexAvail = 0.0f, mainFlexUsed = 0.0f;
     float mainFlexRest[16] = {};
+    // instrument view: current page of each paged list
+    std::map<std::string, int> listPages;
+    // windows that would scroll (last frame), for the headless test
+    std::mutex overflowMtx;
+    std::string overflowList;
+    std::string overflowText() { std::lock_guard<std::mutex> lck(overflowMtx); return overflowList; }
+    // trends view: height of the note and timeslot table below the panels, shown in the last frame
+    float trTsH = 0.0f;
+    bool trTsShown = true;
     int softCount = 0, softGroups = 0, softCountPrev = 0, softGroupsPrev = 0;
     int hamTable[8][16];
     std::string hamTableStatus;
