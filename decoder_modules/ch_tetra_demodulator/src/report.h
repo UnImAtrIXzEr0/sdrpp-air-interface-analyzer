@@ -226,6 +226,22 @@ public:
                 row(o, "Outside the burst", opt(b.offBeforeDbc, 1, " dBc") + " before, " + opt(b.offAfterDbc, 1, " dBc") + " after (floor " + opt(b.floorDbc, 1, " dBc") + ")");
             }
             if (!std::isnan(b.gapDbfs)) { row(o, "Noise between bursts", num(b.gapDbfs, 1) + " dBFS"); }
+            // modulation accuracy (TS 100 394-1 10.1.1 / 10.1.3, limits 7.3.1.2) and
+            // frequency error (10.2.1, limit 7.3.2.2) of the uplink bursts
+            const TetraBurstResult::UlVem& u = b.ulVem;
+            if (u.on && u.n > 0) {
+                auto part = [&](const char* k, const TetraBurstResult::UlVem::Part& p) {
+                    if (p.n == 0) { row(o, k, "&ndash;"); return; }
+                    row(o, k, std::to_string(p.n) + " bursts: RMS " + num(p.rmsMean * 100.0, 1) + " % mean, " + num(p.rmsMax * 100.0, 1)
+                                  + " % max; peak " + num(p.peakMax * 100.0, 1) + " % (SN " + std::to_string(p.peakMaxSym) + "); C0 max "
+                                  + num(p.c0Max * 100.0, 1) + " %");
+                };
+                part("Modulation accuracy, NUB TS1, S(k) CRC-checked (limits RMS 10 %, peak 30 %, C0 5 %)", u.chk);
+                part("NUB TS1, S(k) from decisions (indicative)", u.dec);
+                part("Other bursts: TS2, CB (not measured by 10.1.1)", u.oth);
+                row(o, "Frequency error (" + std::to_string(u.n) + " bursts, vs. the analysed frequency)",
+                    num(u.freqMean, 1) + " Hz mean, std " + num(u.freqStd, 1) + " Hz, max |df| " + num(u.freqMaxAbs, 1) + " Hz (MS limit +-100 Hz; needs a frequency reference)");
+            }
             o << "</table>\n";
             if (!b.profileDbc.empty()) { o << svgProfile(b); }
             if (b.transValid) {

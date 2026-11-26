@@ -695,7 +695,7 @@ public:
                 alarmTotal = dbgAlarmTotal;
                 alarmActive = dbgAlarmActive;
             }
-            char b[4096];
+            char b[8192];
             snprintf(b, sizeof(b),
                      "{\"valid\": %s, \"sync\": %s, \"rx_state\": %d, \"mer_db\": %.2f, \"evm_pct\": %.2f, "
                      "\"iq_offset_db\": %.2f, \"irr_db\": %.2f, \"phase_err_deg\": %.3f, \"amp_err_pct\": %.3f, "
@@ -711,7 +711,9 @@ public:
                      "\"burst_gap_dbfs\": %.1f, "
                      "\"burst_trans_up_p25\": %.1f, \"burst_trans_mid_p25\": %.1f, \"burst_trans_n\": %d, "
                      "\"mp_valid\": %s, \"mp_slots\": %d, \"mp_quality\": %.1f, \"mp_echo_us\": %.1f, \"mp_echo_db\": %.1f, \"mp_spread_us\": %.1f, "
-                     "\"alarms_total\": %d, \"alarm_active\": %s, \"band_valid\": %s, \"band_peak_dbfs\": %.1f, \"band_snr_db\": %.1f, \"sections\": %d, \"burst_desense_db\": %.2f, \"burst_desense_n\": %d, \"freq_ref\": %d, \"vem_grid\": %s, \"vem_n\": %d, \"vem_measured\": %llu, \"vem_rejected\": %llu, \"vem_rms_pct\": %.3f, \"vem_rms_max_pct\": %.3f, \"vem_peak_pct\": %.2f, \"vem_c0_pct\": %.3f}",
+                     "\"alarms_total\": %d, \"alarm_active\": %s, \"band_valid\": %s, \"band_peak_dbfs\": %.1f, \"band_snr_db\": %.1f, \"sections\": %d, \"burst_desense_db\": %.2f, \"burst_desense_n\": %d, \"freq_ref\": %d, \"vem_grid\": %s, \"vem_n\": %d, \"vem_measured\": %llu, \"vem_rejected\": %llu, \"vem_rms_pct\": %.3f, \"vem_rms_max_pct\": %.3f, \"vem_peak_pct\": %.2f, \"vem_c0_pct\": %.3f, "
+                     "\"ul_vem_on\": %s, \"ul_vem_n\": %d, \"ul_vem_rejected\": %llu, \"ul_vem_chk_n\": %d, \"ul_vem_chk_rms_max_pct\": %.3f, \"ul_vem_chk_peak_pct\": %.2f, "
+                     "\"ul_vem_chk_c0_max_pct\": %.3f, \"ul_vem_dec_n\": %d, \"ul_vem_dec_rms_max_pct\": %.3f, \"ul_vem_oth_n\": %d, \"ul_freq_mean_hz\": %.2f, \"ul_freq_max_abs_hz\": %.2f}",
                      m.valid ? "true" : "false", m.symSync ? "true" : "false", m.rxState, m.merDb, m.evmPct,
                      m.iqOffsetDb, symbolExtractor.getImageRejectionDb(), symbolExtractor.getPhaseErrDeg(), symbolExtractor.getAmpErrPct(),
                      m.inputRate, m.inputRatePpm, m.bursts, m.resyncSlip,
@@ -730,7 +732,11 @@ public:
                      alarmTotal, alarmActive ? "true" : "false",
                      bandRes.valid ? "true" : "false", nz(bandRes.peakDbfs), nz(bandRes.snrDb), (int)secOrder.size(), nz(br.desenseDb), br.desenseN, freqRef,
                      vr.gridValid ? "true" : "false", vr.n, (unsigned long long)vr.measured, (unsigned long long)vr.rejected,
-                     vr.n ? vr.rmsMean * 100.0 : -999.0, vr.n ? vr.rmsMax * 100.0 : -999.0, vr.n ? vr.peakMax * 100.0 : -999.0, vr.n ? vr.c0Mean * 100.0 : -999.0);
+                     vr.n ? vr.rmsMean * 100.0 : -999.0, vr.n ? vr.rmsMax * 100.0 : -999.0, vr.n ? vr.peakMax * 100.0 : -999.0, vr.n ? vr.c0Mean * 100.0 : -999.0,
+                     br.ulVem.on ? "true" : "false", br.ulVem.n, (unsigned long long)br.ulVem.rejected, br.ulVem.chk.n,
+                     br.ulVem.chk.n ? br.ulVem.chk.rmsMax * 100.0 : -999.0, br.ulVem.chk.n ? br.ulVem.chk.peakMax * 100.0 : -999.0,
+                     br.ulVem.chk.n ? br.ulVem.chk.c0Max * 100.0 : -999.0, br.ulVem.dec.n, br.ulVem.dec.n ? br.ulVem.dec.rmsMax * 100.0 : -999.0,
+                     br.ulVem.oth.n, br.ulVem.n ? br.ulVem.freqMean : -999.0, br.ulVem.n ? br.ulVem.freqMaxAbs : -999.0);
             return b;
         }
         return "{\"error\": \"unknown command: " + cmd + "\"}";
