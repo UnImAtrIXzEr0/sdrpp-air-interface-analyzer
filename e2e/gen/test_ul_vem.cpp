@@ -3,7 +3,7 @@
 // synthetic normal uplink bursts (training sequence 1 and 2) and control
 // uplink bursts, coded with the decoder's channel coding, pi/4-DQPSK, TETRA
 // filter on both sides, frequency error, residual carrier, amplitude droop,
-// noise, inverted spectrum. Checks burst type, timing and that the ideal
+// noise, other rotation sense. Checks burst type, timing and that the ideal
 // bits are found exactly.
 //
 // Build and run (from the repository root):
@@ -56,7 +56,7 @@ struct Case {
     double c0;          // residual carrier C0 (relative to |S|)
     double droopDb;     // amplitude change over the burst
     double snrDb;       // in the channel
-    bool mirror;        // inverted spectrum
+    bool mirror;        // other rotation sense of the modulation (the frequency error keeps its sign)
     double offset;      // fractional start (samples)
     double evm;         // vector error E(k) added at the symbols (RMS, relative)
 };
@@ -116,6 +116,7 @@ static void makeBurst(const Case& c, uint32_t scr, std::mt19937& rng, std::vecto
         double tt = std::clamp(((double)i - a0) / (a1 - a0), 0.0, 1.0);
         double g = std::pow(10.0, -c.droopDb * tt / 20.0);
         std::complex<double> v = std::complex<double>(x[i]) * g;
+        if (c.mirror) { v = std::conj(v); }
         v *= std::polar(1.0, 2 * PI_D * c.freqHz * (double)i / fs + 0.9);
         x[i] = cf((float)v.real(), (float)v.imag());
     }
@@ -125,7 +126,6 @@ static void makeBurst(const Case& c, uint32_t scr, std::mt19937& rng, std::vecto
     p /= (a1 - a0);
     const float sigma = (float)std::sqrt(p * std::pow(10.0, -c.snrDb / 10.0) * SPS / 2.0);
     if (c.snrDb < 200.0) { for (auto& v : x) { v += cf((float)(sigma * nd(rng)), (float)(sigma * nd(rng))); } }
-    if (c.mirror) { for (auto& v : x) { v = std::conj(v); } }
     // fractional delay: interpolate the transmitted signal at i - offset
     std::vector<cf> xd(x.size(), cf(0.0f, 0.0f));
     for (size_t i = 16; i + 16 < x.size(); i++) { xd[i] = cf(etsi_vem::interp(x, (double)i - c.offset)); }
@@ -144,8 +144,8 @@ int main() {
         { "NUB, training sequence 2, SCH/HD + SCH/HD", UL_NUB2, false, 25.0, 0.01, 0.0, 30.0, false, 0.5, 0.0 },
         { "NUB, training sequence 2, STCH + speech", UL_NUB2, true, -80.0, 0.0, 0.0, 30.0, true, 0.2, 0.0 },
         { "CB, SCH/HU", UL_CB, false, 90.0, 0.04, 0.0, 30.0, false, 0.66, 0.0 },
-        { "CB, SCH/HU, inverted spectrum, 22 dB", UL_CB, false, -30.0, 0.0, 0.5, 22.0, true, 0.1, 0.0 },
-        { "CB, SCH/HU, inverted spectrum, SDR off by +400 Hz", UL_CB, false, 400.0, 0.02, 0.0, 30.0, true, 0.45, 0.0 },
+        { "CB, SCH/HU, other rotation sense, 22 dB", UL_CB, false, -30.0, 0.0, 0.5, 22.0, true, 0.1, 0.0 },
+        { "CB, SCH/HU, other rotation sense, SDR off by +400 Hz", UL_CB, false, 400.0, 0.02, 0.0, 30.0, true, 0.45, 0.0 },
         { "NUB, training sequence 1, speech, 15 dB, SDR off by -400 Hz", UL_NUB1, true, -400.0, 0.0, 0.0, 15.0, false, 0.3, 0.0 },
     };
     for (const Case& c : cases) {
@@ -189,9 +189,9 @@ int main() {
         struct MCase { const char* name; Case c; };
         const MCase mc[] = {
             { "ideal NUB: residual error of the measurement", { "", UL_NUB1, false, 0.0, 0.0, 0.0, 999.0, false, 0.0, 0.0 } },
-            { "ideal CB, inverted spectrum, off by 0.4 samples", { "", UL_CB, false, 0.0, 0.0, 0.0, 999.0, true, 0.4, 0.0 } },
+            { "ideal CB, other rotation sense, off by 0.4 samples", { "", UL_CB, false, 0.0, 0.0, 0.0, 999.0, true, 0.4, 0.0 } },
             { "NUB, E 5 %, C0 3 %, +60 Hz", { "", UL_NUB1, false, 60.0, 0.03, 0.0, 999.0, false, 0.37, 0.05 } },
-            { "NUB speech, E 8 %, C0 1 %, -95 Hz, inverted", { "", UL_NUB1, true, -95.0, 0.01, 0.0, 999.0, true, 0.81, 0.08 } },
+            { "NUB speech, E 8 %, C0 1 %, -95 Hz, other rotation sense", { "", UL_NUB1, true, -95.0, 0.01, 0.0, 999.0, true, 0.81, 0.08 } },
             { "NUB TS2, E 2 %, C0 4.5 %, +350 Hz (SDR offset)", { "", UL_NUB2, false, 350.0, 0.045, 0.0, 999.0, false, 0.5, 0.02 } },
             { "CB, E 10 %, C0 2 %, -40 Hz", { "", UL_CB, false, -40.0, 0.02, 0.0, 999.0, false, 0.66, 0.10 } },
         };
