@@ -266,6 +266,10 @@ public:
         if (config.conf[name].contains("hamMode")) {
             hamMode = config.conf[name]["hamMode"];
         }
+        // stations list and name lookup: own switch since v0.26.0, before part of
+        // the amateur radio mode (taken over from it on the first start)
+        stationsOn = hamMode;
+        if (config.conf[name].contains("stationsOn")) { stationsOn = config.conf[name]["stationsOn"]; }
         // v0.2/0.3 kept an edited duplex table in the config: migrate it into the ham file
         json legacyTable;
         if (config.conf[name].contains("duplexTable")) {
@@ -551,7 +555,7 @@ public:
             else if (k == "settings") {
                 int pg = atoi(v.c_str());
                 if (pg < 0) { settingsCloseReq = true; }
-                else { settingsPage = std::clamp(pg, 0, 9); settingsOpen = true; }
+                else { settingsPage = std::clamp(pg, 0, 8); settingsOpen = true; }
             }
             else if (k == "rf") { rfOpen = (v == "1"); }
             else if (k == "mapsdlg") { mapsDlgOpen = true; }
@@ -755,13 +759,148 @@ private:
                 for (auto& c : info) { if (c == ';') { c = ','; } }
                 return e.callsign + ";" + info;
             },
-            [this]() -> bool { return hamMode; });
+            [this]() -> bool { return stationsOn; });
         meas.start(&mainDemodulator, &symbolExtractor, &osmotetradecoder,
             [this]() -> double {
                 if (!vfo) { return 0.0; }
                 return gui::waterfall.getCenterFrequency() + vfo->getOffset();
             },
             [this]() -> bool { return decoder_mode == 0; });
+    }
+
+    // parts of the measurement section that are also drawn elsewhere (settings,
+    // instrument view): frequency reference, "Calibrate SDR", level calibration,
+    // CRC table, event list
+    static void drawFreqRefRow(TetraDemodulatorModule* _this, float menuWidth) {
+        tw::Text("Frequency reference:"); tw::SameNext();
+        ImGui::SetNextItemWidth((std::min)(menuWidth - ImGui::GetCursorPosX(), 190.0f * style::uiScale));
+        if (ImGui::Combo(CONCAT("##_tetra_fref_", _this->name), &_this->freqRef, "SDR internal\0External 10 MHz\0Calibrated (XO corr.)\0")) {
+            config.acquire();
+            config.conf[_this->name]["freqRef"] = _this->freqRef;
+            config.release(true);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Which reference the SDR runs on. Only with an external 10 MHz\n"
+                              "reference (or a calibration against one) is the carrier error\n"
+                              "judged against the ETSI limit; otherwise it is marked indicative.\n"
+                              "Set the SDR itself as well: USRP (B2xx) Source -> Clock: external;\n"
+                              "Pluto+: reference input is a firmware setting of the device.");
+        }
+    }
+    static void drawCalibrateRow(TetraDemodulatorModule* _this, const TetraMeasSnapshot& m) {
+        ImVec4 good = tc::good();
+        ImVec4 warn = tc::warn();
+        ImVec4 bad = tc::bad();
+        tw::Text("Carrier vs. SYSINFO:"); tw::SameNext();
+        if (!m.absErrValid) { tw::TextDisabled("-- (needs decoder lock)"); }
+        else {
+            float ppm = (float)(m.absErrHz / (m.refFreqHz > 1e6 ? m.refFreqHz : 1e6) * 1e6);
+            tw::TextColored(std::fabs(ppm) <= 0.2f ? good : (std::fabs(ppm) <= 1.0f ? warn : bad), "%+7.1f Hz (%+.3f ppm)", m.absErrHz, ppm);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Received carrier (VFO + offset) minus the DL frequency announced in SYSINFO.\n"
+                                  "Independent of AFC. Contains BS error + SDR error; with a GPS-locked SDR\n"
+                                  "this is the base station's frequency error (ETSI: +-0.2 ppm).");
+            }
+            SourceFreqCorrInterface* fc = _this->findFreqInterface();
+            if (fc && fc->corrAvailable()) {
+                if (tw::SameButtonOrFull(CONCAT("Calibrate SDR##_tetra_cal_", _this->name))) {
+                    double refHz = m.refFreqHz > 1e6 ? m.refFreqHz : 1e6;
+                    double oldPpm = fc->corrPpm();
+                    // carrier too high by e ppm -> SDR oscillator runs slow by e ppm
+                    double newPpm = oldPpm - m.absErrHz / refHz * 1e6;
+                    double res = fc->corrResolutionPpm();
+                    if (res > 0) { newPpm = std::round(newPpm / res) * res; }
+                    fc->setCorrPpm(newPpm);
+                    char b[128];
+                    snprintf(b, sizeof(b), "SDR calibrated: correction %+.3f -> %+.3f ppm (error was %+.1f Hz)", oldPpm, newPpm, m.absErrHz);
+                    _this->meas.addEvent(b);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Sets the SDR's oscillator correction so that this cell's carrier matches\n"
+                                      "its SYSINFO frequency (current correction %+.3f ppm).\n"
+                                      "Only use a cell whose frequency you trust (GPS-locked base station, or\n"
+                                      "measured before with a reference-locked SDR). Let the SDR warm up first.",
+                                      fc->corrPpm());
+                }
+            }
+        }
+    }
+    static void drawCrcTable(TetraDemodulatorModule* _this, const TetraMeasSnapshot& m) {
+        ImVec4 good = tc::good();
+        ImVec4 warn = tc::warn();
+        ImVec4 bad = tc::bad();
+        ImVec4 val = tc::val();
+        (void)val;
+        static const char* chNames[4] = { "BSCH ", "SB2  ", "Half ", "SCH/F" };
+        if (ImGui::BeginTable(CONCAT("##_tetra_crc_", _this->name), 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableSetupColumn("CRC", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 4);
+            ImGui::TableSetupColumn("1 s", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Total", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
+            for (int i = 0; i < 4; i++) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(chNames[i]);
+                ImGui::TableSetColumnIndex(1);
+                uint32_t n = m.crcOk[i] + m.crcFail[i];
+                if (n) {
+                    float f = 100.0f * m.crcFail[i] / n;
+                    tw::TextColored(f == 0.0f ? good : (f < 5.0f ? warn : bad), "%u/%u fail", m.crcFail[i], n);
+                } else { tw::TextDisabled("--"); }
+                ImGui::TableSetColumnIndex(2);
+                uint32_t nt = m.crcOkTotal[i] + m.crcFailTotal[i];
+                if (nt) {
+                    tw::Text("%.2f %% fail", 100.0 * m.crcFailTotal[i] / nt);
+                } else { tw::TextDisabled("--"); }
+            }
+            ImGui::EndTable();
+        }
+    }
+    static void drawEventsBody(TetraDemodulatorModule* _this) {
+        ImVec4 warn = tc::warn();
+        auto ev = _this->meas.getEvents();
+        if (ImGui::SmallButton(CONCAT("Clear##_tetra_evclr_", _this->name))) { _this->meas.clearEvents(); ev.clear(); }
+        if (ev.empty()) { tw::TextDisabled("no events"); }
+        int shown = 0;
+        for (auto it = ev.rbegin(); it != ev.rend() && shown < 30; ++it, ++shown) {
+            struct tm lt;
+#ifdef _WIN32
+            localtime_s(&lt, &it->t);
+#else
+            localtime_r(&it->t, &lt);
+#endif
+            char ts[16];
+            strftime(ts, sizeof(ts), "%H:%M:%S", &lt);
+            bool isLoss = it->text.rfind("SYNC", 0) == 0 || it->text.find("slip ") != std::string::npos;
+            tw::TextDisabled("%s", ts); tw::SameNext();
+            if (isLoss) { tw::TextColored(warn, "%s", it->text.c_str()); }
+            else { ImGui::TextUnformatted(it->text.c_str()); }
+        }
+    }
+    static void drawLevelCal(TetraDemodulatorModule* _this, float menuWidth) {
+        // Level calibration
+        tw::Text("Level cal. (dB):"); ImGui::SameLine();
+        ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
+        if (ImGui::InputFloat(CONCAT("##_tetra_lcal_", _this->name), &_this->levelCalDb, 0.0f, 0.0f, "%.1f")) {
+            config.acquire();
+            // remember the gain the calibration is made at (correction later)
+            SourceGainInterface* cg = _this->findGainInterface();
+            _this->levelCalGainDb = (cg && cg->gainControllable()) ? (float)cg->gainStepDb(cg->gainStep()) : NAN;
+            if (std::isnan(_this->levelCalGainDb)) { config.conf[_this->name].erase("levelCalGainDb"); }
+            else { config.conf[_this->name]["levelCalGainDb"] = _this->levelCalGainDb; }
+            config.release(true);
+            _this->levelCalEff = _this->levelCalDb;
+            _this->meas.setLevelCal(_this->levelCalDb);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("dBm = dBFS + offset. Determine with a signal generator for your SDR\n"
+                              "and frequency. The RF gain at the time of entry is remembered: later gain\n"
+                              "changes are corrected from the SDR's gain table (about +-1 dB). 0 = dBFS.");
+        }
+        if (_this->levelCalDb != 0.0f && std::isnan(_this->levelCalGainDb) && _this->findGainInterface()) {
+            tw::TextColored(tc::warn(), "Please enter the calibration again (gain at calibration unknown)");
+        }
+
     }
 
     static void drawMeasurements(TetraDemodulatorModule* _this, float menuWidth) {
@@ -874,20 +1013,7 @@ private:
                                   m.refFromSysinfo ? "SYSINFO DL" : "VFO", m.refFreqHz / 1e6, lim);
             }
         } else { tw::TextDisabled("--"); }
-        tw::Text("Frequency reference:"); tw::SameNext();
-        ImGui::SetNextItemWidth((std::min)(menuWidth - ImGui::GetCursorPosX(), 190.0f * style::uiScale));
-        if (ImGui::Combo(CONCAT("##_tetra_fref_", _this->name), &_this->freqRef, "SDR internal\0External 10 MHz\0Calibrated (XO corr.)\0")) {
-            config.acquire();
-            config.conf[_this->name]["freqRef"] = _this->freqRef;
-            config.release(true);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Which reference the SDR runs on. Only with an external 10 MHz\n"
-                              "reference (or a calibration against one) is the carrier error\n"
-                              "judged against the ETSI limit; otherwise it is marked indicative.\n"
-                              "Set the SDR itself as well: USRP (B2xx) Source -> Clock: external;\n"
-                              "Pluto+: reference input is a firmware setting of the device.");
-        }
+        drawFreqRefRow(_this, menuWidth);
         tw::Text("Symbol clock:"); tw::SameNext();
         if (m.valid && m.symSync) {
             tw::TextColored(val, "%+7.1f ppm", m.symbolRatePpm);
@@ -923,39 +1049,7 @@ private:
                                   "The audio path is decoupled: a slow sink costs audio, never RF samples.");
             }
         }
-        tw::Text("Carrier vs. SYSINFO:"); tw::SameNext();
-        if (!m.absErrValid) { tw::TextDisabled("-- (needs decoder lock)"); }
-        else {
-            float ppm = (float)(m.absErrHz / (m.refFreqHz > 1e6 ? m.refFreqHz : 1e6) * 1e6);
-            tw::TextColored(std::fabs(ppm) <= 0.2f ? good : (std::fabs(ppm) <= 1.0f ? warn : bad), "%+7.1f Hz (%+.3f ppm)", m.absErrHz, ppm);
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Received carrier (VFO + offset) minus the DL frequency announced in SYSINFO.\n"
-                                  "Independent of AFC. Contains BS error + SDR error; with a GPS-locked SDR\n"
-                                  "this is the base station's frequency error (ETSI: +-0.2 ppm).");
-            }
-            SourceFreqCorrInterface* fc = _this->findFreqInterface();
-            if (fc && fc->corrAvailable()) {
-                if (tw::SameButtonOrFull(CONCAT("Calibrate SDR##_tetra_cal_", _this->name))) {
-                    double refHz = m.refFreqHz > 1e6 ? m.refFreqHz : 1e6;
-                    double oldPpm = fc->corrPpm();
-                    // carrier too high by e ppm -> SDR oscillator runs slow by e ppm
-                    double newPpm = oldPpm - m.absErrHz / refHz * 1e6;
-                    double res = fc->corrResolutionPpm();
-                    if (res > 0) { newPpm = std::round(newPpm / res) * res; }
-                    fc->setCorrPpm(newPpm);
-                    char b[128];
-                    snprintf(b, sizeof(b), "SDR calibrated: correction %+.3f -> %+.3f ppm (error was %+.1f Hz)", oldPpm, newPpm, m.absErrHz);
-                    _this->meas.addEvent(b);
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Sets the SDR's oscillator correction so that this cell's carrier matches\n"
-                                      "its SYSINFO frequency (current correction %+.3f ppm).\n"
-                                      "Only use a cell whose frequency you trust (GPS-locked base station, or\n"
-                                      "measured before with a reference-locked SDR). Let the SDR warm up first.",
-                                      fc->corrPpm());
-                }
-            }
-        }
+        drawCalibrateRow(_this, m);
         _this->drawAfcGain(menuWidth, m);
 
         if (_this->decoder_mode == 0) {
@@ -978,79 +1072,18 @@ private:
                 }
             }
 
-            static const char* chNames[4] = { "BSCH ", "SB2  ", "Half ", "SCH/F" };
-            if (ImGui::BeginTable(CONCAT("##_tetra_crc_", _this->name), 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-                ImGui::TableSetupColumn("CRC", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 4);
-                ImGui::TableSetupColumn("1 s", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Total", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableHeadersRow();
-                for (int i = 0; i < 4; i++) {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(chNames[i]);
-                    ImGui::TableSetColumnIndex(1);
-                    uint32_t n = m.crcOk[i] + m.crcFail[i];
-                    if (n) {
-                        float f = 100.0f * m.crcFail[i] / n;
-                        tw::TextColored(f == 0.0f ? good : (f < 5.0f ? warn : bad), "%u/%u fail", m.crcFail[i], n);
-                    } else { tw::TextDisabled("--"); }
-                    ImGui::TableSetColumnIndex(2);
-                    uint32_t nt = m.crcOkTotal[i] + m.crcFailTotal[i];
-                    if (nt) {
-                        tw::Text("%.2f %% fail", 100.0 * m.crcFailTotal[i] / nt);
-                    } else { tw::TextDisabled("--"); }
-                }
-                ImGui::EndTable();
-            }
+            drawCrcTable(_this, m);
         }
 
         if (ImGui::TreeNode(CONCAT("Events##_tetra_events_", _this->name))) {
-            auto ev = _this->meas.getEvents();
-            if (ImGui::SmallButton(CONCAT("Clear##_tetra_evclr_", _this->name))) { _this->meas.clearEvents(); ev.clear(); }
-            if (ev.empty()) { tw::TextDisabled("no events"); }
-            int shown = 0;
-            for (auto it = ev.rbegin(); it != ev.rend() && shown < 30; ++it, ++shown) {
-                struct tm lt;
-#ifdef _WIN32
-                localtime_s(&lt, &it->t);
-#else
-                localtime_r(&it->t, &lt);
-#endif
-                char ts[16];
-                strftime(ts, sizeof(ts), "%H:%M:%S", &lt);
-                bool isLoss = it->text.rfind("SYNC", 0) == 0 || it->text.find("slip ") != std::string::npos;
-                tw::TextDisabled("%s", ts); tw::SameNext();
-                if (isLoss) { tw::TextColored(warn, "%s", it->text.c_str()); }
-                else { ImGui::TextUnformatted(it->text.c_str()); }
-            }
+            drawEventsBody(_this);
             ImGui::TreePop();
         }
         if (ImGui::Button(CONCAT("Reset totals##_tetra_rst_", _this->name), ImVec2(menuWidth, 0))) {
             _this->meas.resetTotals();
         }
 
-        // Level calibration
-        tw::Text("Level cal. (dB):"); ImGui::SameLine();
-        ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
-        if (ImGui::InputFloat(CONCAT("##_tetra_lcal_", _this->name), &_this->levelCalDb, 0.0f, 0.0f, "%.1f")) {
-            config.acquire();
-            // remember the gain the calibration is made at (correction later)
-            SourceGainInterface* cg = _this->findGainInterface();
-            _this->levelCalGainDb = (cg && cg->gainControllable()) ? (float)cg->gainStepDb(cg->gainStep()) : NAN;
-            if (std::isnan(_this->levelCalGainDb)) { config.conf[_this->name].erase("levelCalGainDb"); }
-            else { config.conf[_this->name]["levelCalGainDb"] = _this->levelCalGainDb; }
-            config.release(true);
-            _this->levelCalEff = _this->levelCalDb;
-            _this->meas.setLevelCal(_this->levelCalDb);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("dBm = dBFS + offset. Determine with a signal generator for your SDR\n"
-                              "and frequency. The RF gain at the time of entry is remembered: later gain\n"
-                              "changes are corrected from the SDR's gain table (about +-1 dB). 0 = dBFS.");
-        }
-        if (_this->levelCalDb != 0.0f && std::isnan(_this->levelCalGainDb) && _this->findGainInterface()) {
-            tw::TextColored(tc::warn(), "Please enter the calibration again (gain at calibration unknown)");
-        }
+        drawLevelCal(_this, menuWidth);
 
         // CSV logging
         bool logging = _this->meas.isLogging();
@@ -1154,6 +1187,8 @@ private:
                 config.conf[_this->name]["hamMode"] = _this->hamMode;
                 config.release(true);
             }
+            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Duplex table for the uplink frequency (SYSINFO): ETSI or amateur radio"); }
+            _this->drawStationsSwitch();
         }
         if (_this->instUi) {
             if (tw::SameSmallButton(CONCAT("Settings...##_tetra_inst_set_", _this->name))) { _this->settingsOpen = true; }
@@ -2027,7 +2062,7 @@ private:
     }
     bool sectionVisible(int id) {
         if (id == S_NET || id == S_DUP) { return decoder_mode == 0; }
-        if (id == S_SUBS) { return decoder_mode == 0 && hamMode; }
+        if (id == S_SUBS) { return decoder_mode == 0 && stationsOn; }
         return true;
     }
 
@@ -2464,7 +2499,7 @@ private:
         tileBottom = false;
         if (preset == 1) {   // measuring station
             tiles = { { S_CONST, 0.42f }, { S_MEAS, 0.38f }, { S_TREND, 0.20f } };
-            tileBottom = hamMode;
+            tileBottom = stationsOn;
         }
         else if (preset == 2) {   // drive test
             tiles = { { S_GPS, 0.45f }, { S_MEAS, 0.35f }, { S_TREND, 0.20f } };
@@ -2876,7 +2911,7 @@ private:
         case S_VALUES: case S_CONST: case S_MEAS: case S_TXA: case S_TREND: case S_CARR:
         case S_BURST: case S_MP: case S_GPS: return true;
         case S_NET: return decoder_mode == 0;
-        case S_SUBS: return decoder_mode == 0 && hamMode;
+        case S_SUBS: return decoder_mode == 0 && stationsOn;
         default: return false;
         }
     }
@@ -3087,7 +3122,7 @@ private:
         // tool row
         if (ImGui::SmallButton(CONCAT("+ Tile##_tile_add_", name))) { addTile(); }
         if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Add a tile below (choose its content in the tile header)"); }
-        if (hamMode && decoder_mode == 0) {
+        if (stationsOn && decoder_mode == 0) {
             ImGui::SameLine();
             bool b = tileBottom;
             if (ImGui::Checkbox(CONCAT("Stations below##_tile_bottom_", name), &b)) {
@@ -3606,7 +3641,7 @@ private:
     float instSoftW() {
         static const char* keys[] = { "Monitor", "Measure", "Drive test", "Alignment", "Spectrum", "Constellation",
                                       "TX spectrum (ACP)", "Burst (uplink)", "Carriers", "Trends", "Multipath",
-                                      "Reset statistics", "Start CSV log", "Stop CSV log", "Create report", "Open log...",
+                                      "Reset statistics", "Events", "Start CSV log", "Stop CSV log", "Create report", "Open log...",
                                       "Lock cell", "Unlock cell", "Export map", "Save image", "Load drive...", "GPS...", "Cell site...", "Set reference", "Play anyway", "Cell details",
                                       "RF / Gain", "Settings", "Limits: mobile station", "Limits: base station" };
         static const char* toggles[] = { "Mute encrypted", "Hide call control", "8 points (pi/4)", "Remove I/Q offset",
@@ -3764,6 +3799,7 @@ private:
         ImGui::EndChild();
         drawSettingsDialog();
         drawCellDetailsDialog();
+        drawEventsDialog();
         drawGpsDialog();
         drawSiteDialog();
         drawMapsDialog();
@@ -3823,7 +3859,7 @@ private:
             if (softkey("Mute encrypted", "muteenc", listenMuteEnc ? 1 : 0)) { listenMuteEnc = !listenMuteEnc; saveListen(); }
             if (listenUnknownMask && softkey("Play anyway", "playany")) { listenPlayAnyway(); }
             if (decoder_mode == 0 && softkey("Cell details", "celldet")) { cellDetailsOpen = true; }
-            if (hamMode && decoder_mode == 0) {
+            if (stationsOn && decoder_mode == 0) {
                 if (softkey("Hide call control", "hidecc", trafficHideControl ? 1 : 0)) { trafficHideControl = !trafficHideControl; }
             }
             break;
@@ -3833,6 +3869,8 @@ private:
             }
             softGroup("SOFTKEYS");
             if (softkey("Reset statistics", "reset")) { meas.resetTotals(); }
+            if (softkey("Events", "events")) { eventsOpen = true; }
+            if (decoder_mode == 0 && softkey("Cell details", "celldet")) { cellDetailsOpen = true; }
             switch (instView) {
             case IV_CONST:
                 if (softkey("8 points (pi/4)", "c8", constellation8 ? 1 : 0)) { constellation8 = !constellation8; config.acquire(); config.conf[name]["constellation8"] = constellation8; config.release(true); }
@@ -4122,6 +4160,7 @@ private:
             measRow("Level", s, "ADC", cal ? "%.1f dBm" : "%.1f dBFS", m.levelDbfs + (cal ? levelCalEff : 0.0f));
         }
         else { measRow("Level", ST_NONE, "", "--"); }
+        if (syn) { measRow("MER", m.merDb >= 20.0f ? ST_OK : (m.merDb >= 12.0f ? ST_WARN : ST_BAD), ui_text::T("guide"), "%.1f dB", m.merDb); }
         if (decoder_mode == 0) {
             if (m.ber >= 0.0) { measRow("Raw BER", m.ber < 1e-3 ? ST_OK : (m.ber < 1e-2 ? ST_WARN : ST_BAD), ui_text::T("guide"), "%.1e", m.ber); }
             uint32_t ok = 0, fail = 0;
@@ -4131,6 +4170,21 @@ private:
                 measRow("CRC errors", p < 1.0 ? ST_OK : (p < 5.0 ? ST_WARN : ST_BAD), ui_text::T("guide"), "%.1f %%", p);
             }
             measRow("Re-locks with slip", m.resyncSlip ? ST_BAD : ST_OK, "0", "%u", m.resyncSlip);
+            measRow("Bursts/s | sync lost", ST_NONE, "", "%u | %u", m.bursts, m.syncLostTotal);
+        }
+
+        // receiving chain: samples and audio reach the analyzer in time
+        measSection("System");
+        if (m.inputRate > 0.0) {
+            // same rule as the classic measurement section: deficit beyond the uncertainty = lost samples
+            double tol = 3.0 * m.inputRateUncPpm + 50.0;
+            bool loss = m.inputRatePpm < -tol;
+            measRow("Input rate", loss ? ST_BAD : (std::fabs(m.inputRatePpm) > tol ? ST_WARN : ST_OK), "72000 S/s", "%+.0f +-%.0f ppm", m.inputRatePpm, m.inputRateUncPpm);
+        }
+        else { measRow("Input rate", ST_NONE, "72000 S/s", "--"); }
+        {
+            double droppedS = (double)audioDecoupler.getDroppedSamples() / 8000.0;
+            measRow("Audio drops", droppedS > 0.0 ? ST_WARN : ST_OK, "", droppedS > 0.0 ? "%.1f s" : "none", droppedS);
         }
         ImGui::EndTable();
         ImGui::Spacing();
@@ -4360,7 +4414,7 @@ private:
     void drawInstBottom() {
         float w = ImGui::GetContentRegionAvail().x;
         ImGui::BeginChild(CONCAT("##_inst_bottom_", name), ImVec2(0, 0), false);
-        if (hamMode && decoder_mode == 0) { drawSubscribersBody(w, 0); }
+        if (stationsOn && decoder_mode == 0) { drawSubscribersBody(w, 0); }
         else if (decoder_mode == 0) { drawNetworkBody(w); }
         touch::dragScroll();
         ImGui::EndChild();
@@ -4828,6 +4882,31 @@ private:
         }
     }
 
+    // stations list, name lists and the stations CSV: only for own or amateur
+    // radio networks (subscriber identities)
+    void drawStationsSwitch() {
+        if (ImGui::Checkbox(ui_text::L("Stations list and name lookup", "_tetra_stations_" + name).c_str(), &stationsOn)) {
+            config.acquire(); config.conf[name]["stationsOn"] = stationsOn; config.release(true);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", ui_text::T("Stations and talk groups, names from the name lists, stations CSV log.\n"
+                                               "Only in your own or amateur radio networks."));
+        }
+    }
+
+    void drawEventsDialog() {
+        if (eventsOpen) { ImGui::OpenPopup(CONCAT("Events###_inst_ev_dlg_", name)); eventsOpen = false; }
+        ImVec2 vs = ImGui::GetMainViewport()->Size;
+        ImGui::SetNextWindowSize(ImVec2(vs.x * 0.55f, vs.y * 0.6f), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImVec2(vs.x * 0.5f, vs.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        bool open = true;
+        std::string title = std::string(ui_text::T("Events")) + "###_inst_ev_dlg_" + name;
+        if (ImGui::BeginPopupModal(title.c_str(), &open)) {
+            drawEventsBody(this);
+            ImGui::EndPopup();
+        }
+    }
+
     void drawCellDetailsDialog() {
         if (cellDetailsOpen) { ImGui::OpenPopup(CONCAT("Cell details###_inst_cell_dlg_", name)); cellDetailsOpen = false; }
         ImVec2 vs = ImGui::GetMainViewport()->Size;
@@ -4836,6 +4915,11 @@ private:
         bool open = true;
         if (ImGui::BeginPopupModal(CONCAT("Cell details###_inst_cell_dlg_", name), &open)) {
             drawNetworkBody(ImGui::GetContentRegionAvail().x);
+            if (decoder_mode == 0) {
+                ImGui::Spacing();
+                instHeader(ui_text::T("CRC of the logical channels"), ImGui::GetContentRegionAvail().x);
+                drawCrcTable(this, meas.get());
+            }
             ImGui::EndPopup();
         }
     }
@@ -4906,7 +4990,7 @@ private:
         if (!ImGui::BeginPopupModal(title.c_str(), &open)) { return; }
         if (settingsCloseReq.exchange(false)) { ImGui::CloseCurrentPopup(); }
         static const char* pages[] = { "Display & operation", "SDR & calibration", "Audio & recording", "Logging & report",
-                                       "Limits & alarms", "Modules", "Network: ETSI / amateur radio", "Duplex tables",
+                                       "Limits & alarms", "Modules", "Duplex tables",
                                        "Name lists", "Decoder / NETSYMS" };
         const int nPages = (int)(sizeof(pages) / sizeof(pages[0]));
         float navW = (std::max)(190.0f * style::uiScale, ImGui::GetFontSize() * 14.0f);
@@ -4945,10 +5029,11 @@ private:
             coreSection("Source", "SDR source", true);
             coreSection(nullptr, "AFC & level", true);
             drawAfcGain(w, m);   // includes the SDR advice line
-            // level calibration, frequency reference, "Calibrate SDR", events
-            // (the measurement section of the classic layout)
+            // settings only; the live values are in the Measure view
             coreSection(nullptr, "Calibration & reference", true);
-            drawMeasurements(this, w);
+            drawLevelCal(this, w);
+            drawFreqRefRow(this, w);
+            drawCalibrateRow(this, m);
             break;
         case 2:
             coreSection("Sinks", "Audio output", true);
@@ -4972,19 +5057,24 @@ private:
         case 5: drawModulesPage(); break;
         case 6:
             {
+                // the only difference between ETSI and amateur radio operation
                 int hm = hamMode ? 1 : 0;
+                tw::Text("%s", ui_text::T("Duplex table:")); tw::SameNext();
                 if (tw::Segmented(CONCAT("_inst_netmode_", name), &hm, "ETSI\0Amateur radio\0")) {
                     hamMode = (hm == 1); applyDuplexMode();
                     config.acquire(); config.conf[name]["hamMode"] = hamMode; config.release(true);
                 }
+                ImGui::Spacing();
             }
+            drawDuplexEditor(w);
             break;
-        case 7: drawDuplexEditor(w); break;
+        case 7:
+            drawStationsSwitch();
+            ImGui::Spacing();
+            if (stationsOn && decoder_mode == 0) { drawSubscribersBody(w, 3); }
+            else if (!stationsOn) { tw::TextDisabled("%s", ui_text::T("Stations list is off.")); }
+            break;
         case 8:
-            if (hamMode && decoder_mode == 0) { drawSubscribersBody(w, 3); }
-            else { tw::TextDisabled("Only in amateur radio mode."); }
-            break;
-        case 9:
             tw::TextDisabled("Streams the demodulated symbols over UDP to an external decoder.\nWhile active, the built-in decoder and all measurements that need it are off.");
             drawNetsyms(w);
             break;
@@ -6272,7 +6362,7 @@ private:
                 config.release(true);
             }
         }
-        if (subsDetached && hamMode) {
+        if (subsDetached && stationsOn) {
             ImGui::SetNextWindowSize(ImVec2(560, 360), ImGuiCond_FirstUseEver);
             // not on top of the constellation window
             ImGui::SetNextWindowPos(ImVec2(900, 80), ImGuiCond_FirstUseEver);
@@ -6922,7 +7012,8 @@ private:
     int decoder_mode = 0;
 
     bool constellation8 = true;
-    bool hamMode = true; // amateur radio edition: default
+    bool hamMode = true; // amateur radio duplex table (default); ETSI table otherwise
+    bool stationsOn = true;   // stations list, name lists, stations CSV (own or amateur radio networks)
     int hamTable[8][16];
     std::string hamTableStatus;
     TetraSubscriberTable subscribers;
@@ -6945,6 +7036,7 @@ private:
     std::string instWorstText;
     bool settingsOpen = false, cellDetailsOpen = false;
     int settingsPage = 0;
+    bool eventsOpen = false;
     bool rfOpen = false;     // RF / Gain window (instrument UI)
     bool instLeftReg = false;   // content column registered as left panel
     int instViewSeen = -1;      // mode*100+view last seen (an analysis starts with its view)
