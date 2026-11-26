@@ -25,7 +25,7 @@ public:
     ImVec4 clearColor = ImVec4(0.0666f, 0.0666f, 0.0666f, 1.0f);
 
     // Optional extra colours for plugin displays (keys starting with
-    // "Constellation" or "Vfo", e.g. ConstellationBg, VfoBandwidth). Empty when the theme has none.
+    // "Constellation", "Vfo" or "Value", e.g. ConstellationBg, VfoBandwidth, ValueText). Empty when the theme has none.
     std::map<std::string, ImVec4> extraColors;
     bool getExtraColor(const std::string& key, ImVec4& out) const {
         auto it = extraColors.find(key);

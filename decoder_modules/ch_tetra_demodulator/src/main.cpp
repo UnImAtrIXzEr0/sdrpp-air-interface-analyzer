@@ -1686,8 +1686,19 @@ private:
     // per-frame work, normally run from onWaterfallDrawn; drawInstMain runs it
     // itself because the core does not emit that event while a module view
     // replaces the waterfall
+    // Value colours of the theme ("Value*" keys), used by tc::val/good/warn/bad
+    static void refreshThemeValues() {
+        tc::ThemeValues t = {};
+        gui::themeManager.getExtraColor("ValueText", t.text);
+        gui::themeManager.getExtraColor("ValueGood", t.good);
+        gui::themeManager.getExtraColor("ValueWarn", t.warn);
+        gui::themeManager.getExtraColor("ValueBad", t.bad);
+        tc::setThemeValues(t);
+    }
+
     void frameWork() {
         frameCount++;
+        refreshThemeValues();
         txaLoop();
         extraLoops();
         controlLoops();
