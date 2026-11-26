@@ -391,9 +391,8 @@ namespace etsi_ul_vem {
     // symbol rate), e.g. from the downlink measurement; a burst is too short to
     // estimate it on its own. S: ideal symbols SN1..SNmax.
     inline etsi_vem::Fit fitBurst(const std::vector<std::complex<float>>& y, double t1, const std::vector<std::complex<double>>& S, double sps = SPS) {
-        double w = 0.0, dr = 0.0;
-        etsi_vem::slopes(y, t1, S, w, dr, sps);   // initial frequency (dr unused)
-        auto cost = [&](double t, double ww) { return etsi_vem::evalModel(y, t, S, ww, 0.0, false, nullptr, sps).cost; };
+        double w = etsi_vem::slope(y, t1, S, sps);   // initial frequency
+        auto cost = [&](double t, double ww) { return etsi_vem::evalModel(y, t, S, ww, false, nullptr, sps).cost; };
         double span = 2.0 * PI_D * 20.0 / etsi_vem::SYMRATE;   // +-20 Hz
         double tspan = 0.3;
         for (int it = 0; it < 3; it++) {
@@ -402,7 +401,7 @@ namespace etsi_ul_vem {
             span /= 4.0;
             tspan /= 3.0;
         }
-        return etsi_vem::evalModel(y, t1, S, w, 0.0, false, nullptr, sps);
+        return etsi_vem::evalModel(y, t1, S, w, false, nullptr, sps);
     }
 
     // ---------------- one burst ----------------

@@ -72,14 +72,16 @@ struct TetraBurstResult {
         int decisionOver = 0;      // bursts with S(k) from decisions and a peak > 0.3 (decisions less certain)
         double c0Mean = NAN, c0Max = NAN;
         double freqMean = NAN, freqStd = NAN, freqMaxAbs = NAN;   // Hz vs. the tap frequency
-        // shown separately: S(k) of every block CRC-checked (chk) or S(k) at least
-        // partly from symbol decisions, e.g. speech (dec)
+        // shown separately: normal uplink bursts with training sequence 1 (TS 100
+        // 394-1 10.1.1) with S(k) of every block CRC-checked (chk) or S(k) at least
+        // partly from symbol decisions, e.g. speech (dec); other burst types (oth:
+        // training sequence 2, control uplink bursts), which 10.1.1 does not measure
         struct Part {
             int n = 0;
             double rmsMean = NAN, rmsMax = NAN, peakMax = NAN;
             int peakMaxSym = -1;
             double c0Max = NAN;
-        } chk, dec;
+        } chk, dec, oth;
     } ulVem;
 };
 
@@ -507,7 +509,7 @@ private:
             r.freqMean = sf / r.n;
             r.freqStd = r.n > 1 ? std::sqrt((std::max)(0.0, (sff - sf * sf / r.n) / (r.n - 1))) : 0.0;
             for (const etsi_ul_vem::Meas& m : vemHist) {
-                TetraBurstResult::UlVem::Part& p = m.src == etsi_ul_vem::SRC_CRC ? r.chk : r.dec;
+                TetraBurstResult::UlVem::Part& p = m.type != etsi_ul_vem::UL_NUB1 ? r.oth : m.src == etsi_ul_vem::SRC_CRC ? r.chk : r.dec;
                 if (p.n++ == 0) { p.rmsMean = p.rmsMax = p.peakMax = p.c0Max = 0.0; }
                 p.rmsMean += m.fit.rmsVe;
                 p.rmsMax = (std::max)(p.rmsMax, m.fit.rmsVe);
@@ -516,6 +518,7 @@ private:
             }
             if (r.chk.n > 0) { r.chk.rmsMean /= r.chk.n; }
             if (r.dec.n > 0) { r.dec.rmsMean /= r.dec.n; }
+            if (r.oth.n > 0) { r.oth.rmsMean /= r.oth.n; }
         }
         acc.ulVem = r;
     }

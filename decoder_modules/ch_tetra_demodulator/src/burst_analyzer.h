@@ -302,8 +302,8 @@ public:
 private:
     static const size_t RING = 1 << 18;   // 1.8 s
 
-    // modulation accuracy (TS 100 394-1 10.1.3, limits 7.3) and frequency error
-    // (10.2.1) of the uplink bursts, model of TS 100 392-2 6.6.1.2
+    // modulation accuracy (TS 100 394-1 10.1.1 / 10.1.3, limits 7.3.1.2) and frequency error
+    // (10.2.1, limit 7.3.2.2) of the uplink bursts, model of TS 100 392-2 6.6.1.2
     void drawUlVem(const TetraBurstResult& r, double tapHz, const TetraBurstFreqRef& fref) {
         const TetraBurstResult::UlVem& u = r.ulVem;
         if (!u.on) { return; }
@@ -313,9 +313,11 @@ private:
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Vector error of every uplink burst (TS 100 392-2 6.6.1.2): symbol time,\n"
                               "frequency, residual carrier C0 and amplitude C1 are removed, amplitude\n"
-                              "changes over the burst stay in the error. Limits (TS 100 394-1 7.3):\n"
+                              "changes over the burst stay in the error. Limits (TS 100 394-1 7.3.1.2):\n"
                               "RMS 10 %% in every burst, peak 30 %% in every symbol, C0 5 %%.\n"
-                              "Statistics over the last %d bursts (10.1.3: 200 bursts).\n"
+                              "Statistics over the last %d bursts (10.1.3: 200 bursts). The standard\n"
+                              "measures normal uplink bursts with training sequence 1 (10.1.1); other\n"
+                              "bursts (training sequence 2, control bursts) are shown apart, no verdict.\n"
                               "The standard measures bursts with known content (test mode); over the\n"
                               "air the ideal symbols S(k) come from the decoded blocks (CRC checked)\n"
                               "or, e.g. for speech, from the symbol decisions. Bursts with decisions\n"
@@ -340,9 +342,11 @@ private:
             tw::Text("    peak"); tw::SameTextColored(cp, "%.1f %%", p.peakMax * 100.0); tw::SameTextDisabled("at SN %d (< 30 %%)", p.peakMaxSym);
             tw::SameText(" C0"); tw::SameTextColored(cc, "%.1f %%", p.c0Max * 100.0); tw::SameTextDisabled("max (< 5 %%)");
         };
-        part(u.chk, "S(k) CRC-checked:", true);
-        part(u.dec, "S(k) from decisions:", false);
+        part(u.chk, "NUB TS1, S(k) CRC-checked:", true);
+        part(u.dec, "NUB TS1, S(k) from decisions:", false);
         if (u.dec.n > 0) { tw::TextDisabled("    indicative (e.g. speech, partly decoded blocks), no verdict"); }
+        part(u.oth, "Other bursts (TS2, CB):", false);
+        if (u.oth.n > 0) { tw::TextDisabled("    not measured by 10.1.1, no verdict"); }
         if (u.decisionOver > 0) {
             tw::TextColored(warn, "    %d burst(s) from decisions with a peak above 30 %%: decisions uncertain", u.decisionOver);
         }
@@ -350,7 +354,8 @@ private:
         tw::Text("Frequency error (TS 100 394-1 10.2.1):");
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("df of every burst from the fitted frequency, relative to the analysed\n"
-                              "uplink frequency. Limit for a mobile station (7.3): +-100 Hz.\n"
+                              "uplink frequency, every burst type. Limit for a mobile station\n"
+                              "(7.3.2.2): +-100 Hz in any burst.\n"
                               "With the SDR's internal reference the SDR error is included (indicative).\n"
                               "MS vs. BS: the downlink of the cell is received with the same SDR, so\n"
                               "its error, scaled to the uplink frequency, is subtracted. What remains\n"

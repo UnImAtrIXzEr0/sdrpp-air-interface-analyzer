@@ -1,5 +1,5 @@
 #pragma once
-// Modulation accuracy of the downlink per EN 300 394-1 10.1.3 (see etsi_vem.h):
+// Modulation accuracy of the downlink per TS 100 394-1 10.1.3 (see etsi_vem.h):
 // own tap at the TETRA VFO (144 kS/s, DSP only), TETRA filter, slot grid from
 // the training sequences, exact ideal symbols from CRC-checked bursts,
 // statistics over the last 200 bursts (10.1.3 b).
@@ -81,13 +81,15 @@ public:
     bool draw(const std::string& id, float width, bool& run, bool gainHeld, int freqRef) {
         bool changed = false;
         ImVec4 val = tc::val(), good = tc::good(), bad = tc::bad(), warn = tc::warn();
-        if (ImGui::Checkbox(("Modulation accuracy (EN 300 394-1, 10.1.3)##_vem_run_" + id).c_str(), &run)) { changed = true; }
+        if (ImGui::Checkbox(("Modulation accuracy (TS 100 394-1, 10.1.3)##_vem_run_" + id).c_str(), &run)) { changed = true; }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Vector error per burst as in the conformance test: TETRA filter (root raised\n"
                               "cosine 0.35, 33 symbols), one frequency / phase / timing / amplitude /\n"
-                              "origin offset per burst, no tracking loops. Ideal symbols are exact: only\n"
-                              "bursts whose blocks pass the CRC are used and coded again bit by bit\n"
-                              "(speech bursts are left out). Statistics over the last 200 bursts.\n"
+                              "origin offset per burst, no tracking loops. An amplitude change over the\n"
+                              "burst is part of the vector error (TS 100 392-2 6.6.1.2). Ideal symbols are\n"
+                              "exact: only bursts whose blocks pass the CRC are used and coded again bit\n"
+                              "by bit (speech bursts are left out). Vector error: normal downlink bursts\n"
+                              "with training sequence 1 only (10.1.2), last 200; frequency: every burst.\n"
                               "Limits (7.3.1.2): RMS < 10 %% in any burst, peak < 30 %%, residual carrier < 5 %%.");
         }
         if (!run) { return changed; }
@@ -96,7 +98,8 @@ public:
         if (!r.gridValid) { tw::TextDisabled("looking for the slot grid..."); return changed; }
         if (!r.cellKnown) { tw::TextDisabled("waiting for a synchronisation burst (cell identity)..."); }
         tw::Text("Bursts:"); tw::SameTextColored(r.n >= etsi_vem::Stats::TARGET ? good : val, "%d/%d", r.n, etsi_vem::Stats::TARGET);
-        tw::SameTextDisabled("(left out: %llu speech/CRC, %llu other)", (unsigned long long)(r.rejTraffic + r.rejCrc), (unsigned long long)r.rejOther);
+        tw::SameTextDisabled("(left out: %llu speech/CRC, %llu other, %llu not NDB TS1)", (unsigned long long)(r.rejTraffic + r.rejCrc), (unsigned long long)r.rejOther,
+                             (unsigned long long)r.otherType);
         if (r.n == 0) { return changed; }
         auto lim = [&](double v, double l) { return v < l ? good : bad; };
         tw::Text("RMS vector error:"); tw::SameTextColored(val, "%.2f %%", r.rmsMean * 100.0);
@@ -108,7 +111,7 @@ public:
             ImGui::SetTooltip("Origin offset of the constellation relative to the signal amplitude\n"
                               "(carrier leakage of the transmitter), %.1f dB.", 20.0 * std::log10((std::max)(r.c0Mean, 1e-6)));
         }
-        tw::Text("Frequency (fit):"); tw::SameTextColored(val, "%+.1f Hz", r.freqMean); tw::SameTextDisabled("+-%.1f Hz vs. the TETRA VFO", r.freqStd);
+        tw::Text("Frequency (fit):"); tw::SameTextColored(val, "%+.1f Hz", r.freqMean); tw::SameTextDisabled("+-%.1f Hz vs. the TETRA VFO (%d bursts)", r.freqStd, r.nFreq);
         if (!std::isnan(r.clockPpm)) {
             tw::Text("Sample clock:"); tw::SameTextColored(std::fabs(r.clockPpm) > 50.0 ? warn : val, "%+.0f ppm", r.clockPpm);
             tw::SameTextDisabled("vs. symbol rate (compensated)");
@@ -120,7 +123,7 @@ public:
             }
         }
         if (r.paDevBursts > 0) {
-            tw::TextColored(warn, "Phase adjustment bits unlike EN 300 392-2 9.4.4.3.6 in %d of %d bursts", r.paDevBursts, r.n);
+            tw::TextColored(warn, "Phase adjustment bits unlike TS 100 392-2 9.4.4.3.6 in %d of %d bursts", r.paDevBursts, r.n);
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("The base station sets the phase adjustment bits differently from equation 9.14.\n"
                                   "This is a coding matter, not modulation accuracy: the bits as sent are used\n"
@@ -132,7 +135,7 @@ public:
         if (r.n < etsi_vem::Stats::TARGET) { why += "fewer than 200 bursts; "; }
         if (!gainHeld) { why += "receiver gain not held; "; }
         if (freqRef == 0) { why += "no frequency reference (frequency only); "; }
-        if (why.empty()) { tw::TextColored(good, "Measured as in EN 300 394-1 10.1.3"); }
+        if (why.empty()) { tw::TextColored(good, "Measured as in TS 100 394-1 10.1.3"); }
         else {
             why.resize(why.size() - 2);
             tw::TextColored(warn, "Indicative:"); tw::SameTextDisabled("%s", why.c_str());

@@ -1,12 +1,15 @@
 #pragma once
 // Modulation accuracy of the received TETRA downlink as defined for the
-// conformance test (EN 300 394-1 V3.3.1, 7.3.1 and 10.1.3; model of
-// EN 300 392-2, 6.6.1.2):
-//   Z(k) = [C0 + C1 (S(k) + E(k))] W^k
+// conformance test (TS 100 394-1 V4.1.1, 7.3.1, 10.1.2 and 10.1.3; model of
+// TS 100 392-2 V3.10.1, 6.6.1.2, equation 6.6):
+//   Z(k) = {C0 + [S(k) + E(k)]} C1 W(k),  W(k) = exp(jk Theta)
 // with the ideal symbols S(k), the vector error E(k), the residual carrier
-// (origin offset) C0, the complex amplitude C1 and W for frequency offset and
-// amplitude change. Per burst: RMS vector error over all 255 symbols, peak
-// vector error, residual carrier |C0|/|C1| and the frequency error.
+// (origin offset) C0, the complex amplitude C1 and W(k) for the frequency
+// offset only: an amplitude change over the burst stays in the vector error.
+// Per burst: RMS vector error over all 255 symbols, peak vector error,
+// residual carrier |C0|/|C1| and the frequency error. The vector error
+// statistics use normal downlink bursts with normal training sequence 1 only
+// (10.1.2); the frequency error uses every measured burst (7.3.2.2: any burst).
 //
 // Sampling system as in annex B.1.2: TETRA filter (root raised cosine,
 // roll-off 0.35, 33 symbols long, B.1.2.2 asks for at least 30), 8 samples
@@ -96,7 +99,7 @@ namespace etsi_vem {
     }
 
     // ---------------- pi/4-DQPSK ----------------
-    // phase change of a dibit in units of pi/4 (EN 300 392-2, 5.5.2):
+    // phase change of a dibit in units of pi/4 (TS 100 392-2 V3.10.1, 5.4, table 5.1):
     // 00 +1, 01 +3, 11 -3, 10 -1
     inline int dibitPhase(int b1, int b2) {
         if (!b1 && !b2) { return 1; }
@@ -132,7 +135,7 @@ namespace etsi_vem {
         BurstType type = BT_NONE;
         uint8_t bits[NBITS] = {};   // the burst as sent
         int bitErrors = 0;          // received vs. reconstructed bits
-        int paDeviations = 0;       // phase adjustment pairs sent unlike EN 300 392-2 9.4.4.3.6
+        int paDeviations = 0;       // phase adjustment pairs sent unlike TS 100 392-2 9.4.4.3.6
         bool sb1 = false;           // BSCH decoded: cell identity below
         uint16_t mcc = 0, mnc = 0;
         uint8_t cc = 0;
@@ -206,7 +209,7 @@ namespace etsi_vem {
         return true;
     }
 
-    // phase adjustment bits (EN 300 392-2 V3.8.1, 9.4.4.3.6, equation 9.14):
+    // phase adjustment bits (TS 100 392-2 V3.10.1, 9.4.4.3.6, equation 9.14):
     // their phase change is minus the sum of the phase changes of symbols n1..n2
     inline void phaseAdjust(const uint8_t* bits, int n1, int n2, uint8_t* out) {
         int sum = 0;
@@ -345,7 +348,6 @@ namespace etsi_vem {
         double peakVe = NAN;       // peak vector error magnitude
         double residualCarrier = NAN;   // |C0| / |C1|
         double freqHz = NAN;       // frequency offset of the burst vs. the tap
-        double ampDroopDb = NAN;   // amplitude change over the burst
         double timing = 0.0;       // refined position of symbol 0 (samples)
         double sps = SPS;          // samples per symbol found (sample clock vs. symbol rate)
         double clockPpm = 0.0;     // (sps / 8 - 1) * 1e6
@@ -353,14 +355,14 @@ namespace etsi_vem {
         int peakSym = -1;
     };
 
-    // evaluate the model for one timing / frequency / amplitude slope
-    inline Fit evalModel(const std::vector<std::complex<float>>& y, double t0, const std::vector<std::complex<double>>& S, double w, double dr, bool keepE = false, std::vector<double>* emag = nullptr, double sps = SPS) {
+    // evaluate the model for one timing / frequency (w: Theta, radians per symbol)
+    inline Fit evalModel(const std::vector<std::complex<float>>& y, double t0, const std::vector<std::complex<double>>& S, double w, bool keepE = false, std::vector<double>* emag = nullptr, double sps = SPS) {
         Fit f;
         const int N = (int)S.size();
         std::vector<std::complex<double>> Y(N);
         interpRow(y, t0, N, Y.data(), sps);
         {
-            std::complex<double> step = std::exp(std::complex<double>(-dr, -w)), rot(1.0, 0.0);
+            std::complex<double> step = std::exp(std::complex<double>(0.0, -w)), rot(1.0, 0.0);
             for (int k = 0; k < N; k++) { Y[k] *= rot; rot *= step; }
         }
         // least squares C0, C1: Y = C0 + C1 S
@@ -391,17 +393,16 @@ namespace etsi_vem {
         f.peakSym = pki;
         f.residualCarrier = std::abs(C0) / std::abs(C1);
         f.freqHz = w / (2.0 * PI_D) * SYMRATE;
-        f.ampDroopDb = 20.0 * std::log10(std::exp(dr * (N - 1)));
         f.timing = t0;
         f.sps = sps;
         f.clockPpm = (sps / SPS - 1.0) * 1e6;
         return f;
     }
 
-    // initial frequency and amplitude slope from D(k) = Z(k) conj(S(k))
-    inline void slopes(const std::vector<std::complex<float>>& y, double t0, const std::vector<std::complex<double>>& S, double& w, double& dr, double sps = SPS) {
+    // initial frequency from the phase slope of D(k) = Z(k) conj(S(k))
+    inline double slope(const std::vector<std::complex<float>>& y, double t0, const std::vector<std::complex<double>>& S, double sps = SPS) {
         const int N = (int)S.size();
-        std::vector<double> ph(N), lm(N);
+        std::vector<double> ph(N);
         std::vector<std::complex<double>> Z(N);
         interpRow(y, t0, N, Z.data(), sps);
         double prev = 0.0;
@@ -411,14 +412,12 @@ namespace etsi_vem {
             if (k > 0) { while (a - prev > PI_D) { a -= 2 * PI_D; } while (a - prev < -PI_D) { a += 2 * PI_D; } }
             ph[k] = a;
             prev = a;
-            lm[k] = std::log((std::max)(std::abs(d), 1e-30));
         }
-        double mk = (N - 1) / 2.0, sxx = 0.0, sxp = 0.0, sxl = 0.0, mp = 0.0, ml = 0.0;
-        for (int k = 0; k < N; k++) { mp += ph[k]; ml += lm[k]; }
-        mp /= N; ml /= N;
-        for (int k = 0; k < N; k++) { double x = k - mk; sxx += x * x; sxp += x * (ph[k] - mp); sxl += x * (lm[k] - ml); }
-        w = sxp / sxx;
-        dr = sxl / sxx;
+        double mk = (N - 1) / 2.0, sxx = 0.0, sxp = 0.0, mp = 0.0;
+        for (int k = 0; k < N; k++) { mp += ph[k]; }
+        mp /= N;
+        for (int k = 0; k < N; k++) { double x = k - mk; sxx += x * x; sxp += x * (ph[k] - mp); }
+        return sxp / sxx;
     }
 
     // golden section search of f on [a, b]
@@ -436,24 +435,22 @@ namespace etsi_vem {
 
     // full fit: timing (+-0.6 samples around t0), sample clock (+-300 ppm:
     // the test system of the standard is locked, an SDR is not), frequency,
-    // amplitude slope, C0, C1 by least squares of the vector error
+    // C0, C1 by least squares of the vector error (no amplitude slope: not part
+    // of the model, TS 100 392-2 6.6.1.2)
     inline Fit fitBurst(const std::vector<std::complex<float>>& y, double t0, const std::vector<std::complex<double>>& S) {
-        double w = 0.0, dr = 0.0, sps = SPS;
+        double w = 0.0, sps = SPS;
         auto costTS = [&](double t, double q) {
-            double ww, dd;
-            slopes(y, t, S, ww, dd, q);
-            return evalModel(y, t, S, ww, dd, false, nullptr, q).cost;
+            return evalModel(y, t, S, slope(y, t, S, q), false, nullptr, q).cost;
         };
         double t = golden([&](double tt) { return costTS(tt, sps); }, t0 - 0.6, t0 + 0.6, 16);
         sps = golden([&](double q) { return costTS(t, q); }, SPS * (1.0 - 3e-4), SPS * (1.0 + 3e-4), 16);
         t = golden([&](double tt) { return costTS(tt, sps); }, t - 0.3, t + 0.3, 12);
-        slopes(y, t, S, w, dr, sps);
+        w = slope(y, t, S, sps);
         // refine the frequency (slope estimate is slightly biased by C0)
         double span = 2.0 * PI_D * 20.0 / SYMRATE;
-        w = golden([&](double ww) { return evalModel(y, t, S, ww, dr, false, nullptr, sps).cost; }, w - span, w + span, 20);
-        dr = golden([&](double dd) { return evalModel(y, t, S, w, dd, false, nullptr, sps).cost; }, dr - 2e-4, dr + 2e-4, 16);
-        t = golden([&](double tt) { return evalModel(y, tt, S, w, dr, false, nullptr, sps).cost; }, t - 0.15, t + 0.15, 14);
-        return evalModel(y, t, S, w, dr, false, nullptr, sps);
+        w = golden([&](double ww) { return evalModel(y, t, S, ww, false, nullptr, sps).cost; }, w - span, w + span, 20);
+        t = golden([&](double tt) { return evalModel(y, tt, S, w, false, nullptr, sps).cost; }, t - 0.15, t + 0.15, 14);
+        return evalModel(y, t, S, w, false, nullptr, sps);
     }
 
     // demodulate the 510 bits of a burst (decision on the phase changes);
@@ -609,12 +606,14 @@ namespace etsi_vem {
     struct Stats {
         bool gridValid = false;
         int n = 0;
-        static constexpr int TARGET = 200;   // EN 300 394-1 10.1.3 b)
+        static constexpr int TARGET = 200;   // TS 100 394-1 10.1.3 b): normal downlink bursts, training sequence 1
         uint64_t measured = 0, rejected = 0;
+        uint64_t otherType = 0;   // measured, but not NDB with training sequence 1 (10.1.2): frequency only
         uint64_t rejTraffic = 0, rejCrc = 0, rejOther = 0;
         double rmsMean = NAN, rmsMax = NAN, peakMax = NAN;
         double c0Mean = NAN, c0Max = NAN;
-        double freqMean = NAN, freqStd = NAN;
+        double freqMean = NAN, freqStd = NAN;   // every measured burst (last 200)
+        int nFreq = 0;
         double clockPpm = NAN;   // sample clock vs. symbol rate (mean)
         int paDevBursts = 0;
         bool cellKnown = false;
@@ -665,7 +664,10 @@ namespace etsi_vem {
                         continue;
                     }
                     st.measured++;
-                    hist.push_back({ m.fit.rmsVe, m.fit.peakVe, m.fit.residualCarrier, m.fit.freqHz, m.paDeviations > 0, m.fit.clockPpm });
+                    histF.push_back({ m.fit.freqHz, m.fit.clockPpm });
+                    if ((int)histF.size() > Stats::TARGET) { histF.erase(histF.begin()); }
+                    if (m.type != BT_NDB1) { st.otherType++; continue; }
+                    hist.push_back({ m.fit.rmsVe, m.fit.peakVe, m.fit.residualCarrier, m.paDeviations > 0 });
                     if ((int)hist.size() > Stats::TARGET) { hist.erase(hist.begin()); }
                 }
             }
@@ -674,16 +676,25 @@ namespace etsi_vem {
         }
 
     private:
-        struct One { double rms, peak, c0, f; bool paDev; double ppm; };
+        struct One { double rms, peak, c0; bool paDev; };
+        struct OneF { double f, ppm; };
         void summarise() {
             st.n = (int)hist.size();
+            st.nFreq = (int)histF.size();
+            if (!histF.empty()) {
+                double fs = 0, fs2 = 0, pp = 0;
+                for (auto& o : histF) { fs += o.f; fs2 += o.f * o.f; pp += o.ppm; }
+                double n = (double)histF.size();
+                st.freqMean = fs / n;
+                st.freqStd = std::sqrt((std::max)(0.0, fs2 / n - st.freqMean * st.freqMean));
+                st.clockPpm = pp / n;
+            }
             if (hist.empty()) { return; }
-            double s2 = 0, rmax = 0, pmax = 0, c0s = 0, c0max = 0, fs = 0, fs2 = 0, pp = 0;
+            double s2 = 0, rmax = 0, pmax = 0, c0s = 0, c0max = 0;
             int pd = 0;
             for (auto& o : hist) {
-                pp += o.ppm;
                 s2 += o.rms * o.rms; rmax = (std::max)(rmax, o.rms); pmax = (std::max)(pmax, o.peak);
-                c0s += o.c0; c0max = (std::max)(c0max, o.c0); fs += o.f; fs2 += o.f * o.f;
+                c0s += o.c0; c0max = (std::max)(c0max, o.c0);
                 pd += o.paDev ? 1 : 0;
             }
             double n = (double)hist.size();
@@ -692,13 +703,11 @@ namespace etsi_vem {
             st.peakMax = pmax;
             st.c0Mean = c0s / n;
             st.c0Max = c0max;
-            st.freqMean = fs / n;
-            st.freqStd = std::sqrt((std::max)(0.0, fs2 / n - st.freqMean * st.freqMean));
             st.paDevBursts = pd;
-            st.clockPpm = pp / n;
         }
         std::vector<float> h;
         std::vector<One> hist;
+        std::vector<OneF> histF;
         Stats st;
         uint64_t doneAbs = 0;
         bool doneValid = false;
