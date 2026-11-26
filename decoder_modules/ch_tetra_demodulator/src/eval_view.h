@@ -50,7 +50,7 @@ public:
         if (ppbV.empty()) { tw::TextDisabled("no data yet (needs lock and SYSINFO)"); return; }
         tw::Text("Mean offset:");
         tw::SameTextColored(tc::val(), "%+.1f ppb", ppbMean);
-        tw::SameTextDisabled("(ETSI base station: +-200 ppb)");
+        tw::SameTextDisabled("(ETSI base station: +-200 ppb, above 520 MHz +-100 ppb)");   // TS 100 394-1 7.3.2.2
         drawSeries(id + "s", width, pal);
         if (adev.empty()) { tw::TextDisabled("Allan deviation: needs at least 10 s without gaps."); return; }
         tw::Text("Allan deviation");

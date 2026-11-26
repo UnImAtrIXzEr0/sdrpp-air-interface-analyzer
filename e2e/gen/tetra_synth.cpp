@@ -9,7 +9,7 @@
 //
 // Bursts are coded with the decoder's own channel coding functions (CRC 16,
 // rate 2/3 RCPC, block interleaving, Reed-Muller (30,14), scrambling) and the
-// phase adjustment bits per EN 300 392-2 9.4.4.3.6. Modulation: pi/4-DQPSK,
+// phase adjustment bits per TS 100 392-2 9.4.4.3.6. Modulation: pi/4-DQPSK,
 // root raised cosine 0.35, then a weak echo, a small frequency error and noise.
 //
 // Output: 2-channel 16-bit WAV, 32 kS/s, carrier at -3 kHz (the tests name it
@@ -103,7 +103,7 @@ static Bits sysinfoPdu(int hyperframe, int multiframe) {
     p.put(0, 1);                // hyperframe number follows
     p.put(hyperframe & 0xffff, 16);
     // optional field: rotates from multiframe to multiframe like on real cells
-    // (EN 300 392-2 21.4.4.1), so values that come only in some SYSINFOs are
+    // (TS 100 392-2 21.4.4.1), so values that come only in some SYSINFOs are
     // tested (the extended services with the security information only in
     // every fourth multiframe)
     switch (multiframe & 3) {
@@ -115,7 +115,7 @@ static Bits sysinfoPdu(int hyperframe, int multiframe) {
         break;
     default:                                          // extended services broadcast
         p.put(3, 2);
-        p.put(0x00, 8);         // security information: no authentication, class 1 not supported, class 2 (EN 300 392-7 A.8.77)
+        p.put(0x00, 8);         // security information: no authentication, class 1 not supported, class 2 (TS 100 392-7 A.8.77)
         p.put(0, 12);           // SDS-TL addressing, GCK, section 1 etc.: not used
         break;
     }

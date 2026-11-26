@@ -858,7 +858,7 @@ private:
         // Frequency / clock
         tw::Text("Carrier offset:"); tw::SameNext();
         if (m.valid && m.symSync) {
-            // EN 300 394-1 7.3.2.2: BS +-0.2 ppm up to 520 MHz, +-0.1 ppm above.
+            // TS 100 394-1 7.3.2.2: BS +-0.2 ppm up to 520 MHz, +-0.1 ppm above.
             // Judged only with a reference: B.1.2.1 asks +-0.02 ppm for the test receiver.
             float lim = m.refFreqHz > 520e6 ? 0.1f : 0.2f;
             tw::TextColored(val, "%+7.1f Hz", m.carrierOffsetHz);
@@ -867,7 +867,7 @@ private:
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Carrier frequency error of the received cell (downlink).\n"
                                   "Nominal: %s %.4f MHz. Includes the SDR's own frequency error.\n"
-                                  "EN 300 394-1 7.3.2: BS within +-%.1f ppm (MS +-100 Hz).\n"
+                                  "TS 100 394-1 7.3.2: BS within +-%.1f ppm (MS +-100 Hz).\n"
                                   "B.1.2.1: the test receiver itself must be within +-0.02 ppm -\n"
                                   "only reachable with an external 10 MHz reference or a fresh\n"
                                   "calibration. Without one the value is indicative only.",
@@ -4015,11 +4015,14 @@ private:
     }
 
     // ---- measured values with limit and assessment ----
-    // Limits (newest editions, checked against the texts):
-    //  EN 300 394-1 V3.3.1 7.3.1.2 / EN 300 392-2 V3.8.1 6.6.1.2: vector error rms < 10 % per burst,
-    //    peak < 30 %, residual carrier |C0| < 5 % of |S(k)| (pi/4-DQPSK), BS and MS
-    //  EN 300 394-1 7.3.2.2: frequency error BS +-0.2 ppm up to 520 MHz, +-0.1 ppm above; MS +-100 Hz
-    //  Values without a normative limit (IRR, error split, BER, CRC) are shown as guide values only.
+    // Limits (TS 100 394-1 V4.1.1 and TS 100 392-2 V3.10.1, checked against the PDFs):
+    //  TS 100 394-1 7.3.1.2 / TS 100 392-2 6.6.1.2: vector error rms < 10 % in any burst,
+    //    peak < 30 %, residual carrier |C0| < 5 % of |S(k)| in any burst (pi/4-DQPSK), BS and MS
+    //  TS 100 394-1 7.3.2.2: frequency error BS +-0.2 ppm up to 520 MHz, +-0.1 ppm above; MS +-100 Hz
+    //  The limits apply to the method of TS 100 394-1 10.1.3 ("Mod. accuracy 10.1.3"). The fast
+    //  EVM and residual carrier of the symbol extractor (decision-directed, not per burst, behind
+    //  the tracking loops) are guide values: above the limit they are marked as a warning, not
+    //  as a failure. Values without a normative limit (IRR, error split, BER, CRC) are guide values.
     void measRow(const char* label, int st, const char* limit, const char* fmt, ...) {
         char buf[128];
         va_list ap;
@@ -4059,12 +4062,13 @@ private:
         measSection("Modulation");
         if (syn) {
             float evm = compOriginOffset ? 100.0f * powf(10.0f, -m.merExclDb / 20.0f) : m.evmPct;
-            int s = (evm < 10.0f && m.evmPeakPct < 30.0f) ? ST_OK : ST_BAD;
-            measRow("EVM rms / peak", s, "10 / 30 %", "%.1f / %.0f %%", evm, m.evmPeakPct);
+            float evmPk = compOriginOffset ? m.evmPeakExclPct : m.evmPeakPct;
+            int s = (evm < 10.0f && evmPk < 30.0f) ? ST_OK : ST_WARN;   // guide value, see above
+            measRow("EVM rms / peak", s, "10 / 30 %", "%.1f / %.0f %%", evm, evmPk);
             float ph = symbolExtractor.getPhaseErrDeg(), am = symbolExtractor.getAmpErrPct();
             measRow("Error phase / ampl.", ST_NONE, ui_text::T("guide"), "%.1f %% / %.1f %%", ph * 3.14159265f / 180.0f * 100.0f, am);
             // residual carrier: 20 lg(0.05) = -26 dB
-            measRow("Residual carrier", m.iqOffsetDb < -26.0f ? ST_OK : ST_BAD, "-26 dB (5 %)", "%.1f dB", m.iqOffsetDb);
+            measRow("Residual carrier", m.iqOffsetDb < -26.0f ? ST_OK : ST_WARN, "-26 dB (5 %)", "%.1f dB", m.iqOffsetDb);   // guide value
             float irr = symbolExtractor.getImageRejectionDb();
             measRow("I/Q imbalance (IRR)", irr >= 30.0f ? ST_OK : ST_WARN, ui_text::T("guide"), "%.1f dB", irr);
         }
@@ -4075,7 +4079,8 @@ private:
         if (vemRun) {
             TetraVemResult r = vemAn.get();
             if (r.n > 0 && !std::isnan(r.rmsMean)) {
-                int s = (r.rmsMax < 0.10 && r.peakMax < 0.30 && r.c0Mean < 0.05) ? ST_OK : ST_BAD;
+                // TS 100 394-1 7.3.1.2: each limit in any burst, so the maxima over the bursts
+                int s = (r.rmsMax < 0.10 && r.peakMax < 0.30 && r.c0Max < 0.05) ? ST_OK : ST_BAD;
                 measRow("Mod. accuracy 10.1.3", s, "10 / 30 %", "%.1f / %.0f %% (%d)", r.rmsMean * 100.0, r.peakMax * 100.0, r.n);
             }
         }
@@ -4129,7 +4134,8 @@ private:
         }
         ImGui::EndTable();
         ImGui::Spacing();
-        tw::TextDisabled("EN 300 394-1 V3.3.1 7.3.1.2 / 7.3.2.2");
+        tw::TextDisabled("TS 100 394-1 V4.1.1 7.3.1.2 / 7.3.2.2");
+        tw::TextDisabled("%s", ui_text::T("EVM, residual carrier: guide values (standard: 10.1.3)"));
     }
 
     // ---- alignment: big meters with tolerance band and reference ----
@@ -4234,7 +4240,7 @@ private:
         float h = (std::max)(ImGui::GetFrameHeight() * 6.2f, 120.0f * style::uiScale);
         double fref = m.refFreqHz > 1e6 ? m.refFreqHz : 400e6;
         double hz = m.absErrValid ? m.absErrHz : m.carrierOffsetHz;
-        // frequency: BS +-0.2 ppm (+-0.1 above 520 MHz), MS +-100 Hz (EN 300 394-1 7.3.2.2)
+        // frequency: BS +-0.2 ppm (+-0.1 above 520 MHz), MS +-100 Hz (TS 100 394-1 7.3.2.2)
         double limHz = alignMs ? 100.0 : fref * (fref > 520e6 ? 0.1e-6 : 0.2e-6);
         char lt[48];
         snprintf(lt, sizeof(lt), alignMs ? "±100 Hz (MS)" : "±%.0f Hz (BS)", limHz);
@@ -5108,7 +5114,9 @@ private:
                 }
                 if (d->sync_valid) {
                     row("Cell load (SYNC)", "Cell service level from D-MLE-SYNC.", "%s", cellLoadName(d->cell_load_sync));
-                    row("Air interface", "System code from SYNC: 0 = ETS 300 392-2 ed. 1, 1 = EN 300 392-2 V2.3.2+,\n2 = V3.1.1+ (Release 2), 10..15 = DMO.", "code %d", d->system_code);
+                    row("Air interface", "System code from SYNC (TS 100 392-2 table 21.76): 0 = ETS 300 392-2 ed. 1\n"
+                        "(no security), 1 = ed. 1 with EN 300 392-7 V2.1.1, 2 = EN 300 392-2 V2.3.2 to V2.6.1,\n"
+                        "3 = from V3.1.1 (Release 2), 8..9 = reserved, 10..15 = direct mode (DMO).", "code %d", d->system_code);
                     row("Sharing mode", "Whether the carrier / MCCH is shared between several cells.", "%s", sharing[d->sharing_mode & 3]);
                     if (d->sharing_mode == 2) {
                         row("Reserved frames", "MCCH sharing: frames reserved for this cell per two multiframes.", "%d", resFrames[d->ts_reserved_frames & 7]);
@@ -5269,11 +5277,11 @@ private:
             else { tw::SameTextColored(tc::warn(), "offered"); }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("From the cell broadcast (D-MLE-SYSINFO air interface encryption service,\n"
-                                  "CCK identifier in SYSINFO, EN 300 392-2). This program does NOT decrypt:\n"
+                                  "CCK identifier in SYSINFO, TS 100 392-2). This program does NOT decrypt:\n"
                                   "encrypted messages and calls are only marked as encrypted.");
             }
             // Security information in the extended services broadcast of SYSINFO
-            // (EN 300 392-2 table 21.67, EN 300 392-7 V3.5.1 A.8.77 table A.104)
+            // (TS 100 392-2 table 21.67, TS 100 392-7 V4.2.1 A.8.77 table A.104)
             // The option field of SYSINFO rotates (multiframe definitions, access code,
             // extended services), so the value is kept and the line is always there:
             // a line that comes and goes moves everything below it.
@@ -5291,7 +5299,7 @@ private:
                     if (!sc3) { tw::SameTextColored(tc::val(), " (SCKN %u)", si & 0x1f); }
                 }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Security information element of the cell (EN 300 392-7 A.8.77):\n"
+                    ImGui::SetTooltip("Security information element of the cell (TS 100 392-7 A.8.77):\n"
                                       "authentication, security class 1 support, class 2 (static cipher key)\n"
                                       "or class 3 (dynamic / common cipher keys)%s.\nLast received %lds ago.", sc3 ? "" : ", SCK number",
                                       (long)(time(nullptr) - ds->ext_rx_time));
@@ -5301,14 +5309,16 @@ private:
             if (ds && ds->ksg_valid) {
                 long ago = (long)(time(nullptr) - ds->ksg_rx_time);
                 char alg[48];
-                if (ds->ksg_number < 4) { snprintf(alg, sizeof(alg), "TEA%d", ds->ksg_number + 1); }
-                else { snprintf(alg, sizeof(alg), "%s %d", ds->ksg_number >= 8 ? "proprietary" : "reserved", ds->ksg_number); }
+                // TS 100 392-7 V4.2.1 A.8.41, table A.73: 0..6 TEA1..TEA7, 7 reserved,
+                // 8..11 proprietary, 12..15 reserved (proprietary before V4.1.1)
+                if (ds->ksg_number < 7) { snprintf(alg, sizeof(alg), "TEA%d", ds->ksg_number + 1); }
+                else { snprintf(alg, sizeof(alg), "%s %d", (ds->ksg_number >= 8 && ds->ksg_number <= 11) ? "proprietary" : "reserved", ds->ksg_number); }
                 tw::Text("Algorithm:");
                 tw::SameTextColored(tc::warn(), "%s, security class %d", alg, ds->ksg_sec_class);
                 tw::SameTextDisabled("(seen %lds ago)", ago);
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("KSG number from the ciphering parameters of a D-LOCATION UPDATE COMMAND\n"
-                                      "(EN 300 392-7 A.8.12 / A.8.41). Indication only - nothing is decrypted.");
+                                      "(TS 100 392-7 A.8.12 / A.8.41). Indication only - nothing is decrypted.");
                 }
             }
             else if (air) {
@@ -5551,7 +5561,7 @@ private:
             ImGui::SetNextItemWidth(menuWidth * 0.3f); ch |= ImGui::InputFloat(CONCAT("25 kHz##_tetra_l25_", name), &txaLimit[0], 0, 0, "%.0f dBc");
             ImGui::SetNextItemWidth(menuWidth * 0.3f); ch |= ImGui::InputFloat(CONCAT("50 kHz##_tetra_l50_", name), &txaLimit[1], 0, 0, "%.0f dBc");
             ImGui::SetNextItemWidth(menuWidth * 0.3f); ch |= ImGui::InputFloat(CONCAT("75 kHz##_tetra_l75_", name), &txaLimit[2], 0, 0, "%.0f dBc");
-            // presets: EN 300 394-1 7.1.3.2, tables 7.1 to 7.3 (normal test conditions)
+            // presets: TS 100 394-1 7.1.3.2, tables 7.1 to 7.3 (normal test conditions)
             tw::Text("Preset:");
             if (tw::SameSmallButton(CONCAT("BS / MS class 1-3##_tetra_lp1_", name))) { txaLimit[0] = -60.0f; txaLimit[1] = -70.0f; txaLimit[2] = -70.0f; ch = true; }
             if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Table 7.2 (below 700 MHz): -60 / -70 / -70 dBc"); }
@@ -5560,9 +5570,14 @@ private:
             if (tw::SameSmallButton(CONCAT("> 700 MHz##_tetra_lp3_", name))) { txaLimit[0] = -55.0f; txaLimit[1] = -65.0f; txaLimit[2] = -65.0f; ch = true; }
             if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Table 7.3: -55 / -65 / -65 dBc (75 kHz: -70 dBc for BS classes 1-3 and MS 1/1L)"); }
             if (ch) { saveTxaConfig(); }
-            tw::TextDisabled("Average power over the useful part through the TETRA filter (RRC 0.35)\n"
-                             "at +-25 / 50 / 75 kHz (EN 300 394-1 7.1.3). Never stricter than -36 dBm.\n"
-                             "Own floor of the test system must be below -70 / -80 / -80 dBc (B.1.2.3).");
+            // TS 100 394-1 V4.1.1 8.3 times the measurement to the useful part of normal
+            // downlink bursts with training sequence 1; this spectrum is not gated
+            tw::TextDisabled("Average power through the TETRA filter (RRC 0.35) at +-25 / 50 / 75 kHz\n"
+                             "(TS 100 394-1 7.1.3). Not gated to the bursts: on a continuous downlink the\n"
+                             "only difference to 8.3 is that all burst types count. One average = 0.25 s\n"
+                             "(about 17 bursts); 12 or more cover the 200 bursts of 8.3.\n"
+                             "Never stricter than -36 dBm. Own floor of the test system must be below\n"
+                             "-70 / -80 / -80 dBc (B.1.2.3).");
             ImGui::TreePop();
         }
 
@@ -5986,7 +6001,7 @@ private:
         }
     }
 
-    // modulation accuracy per EN 300 394-1 10.1.3 (own measurement path)
+    // modulation accuracy per TS 100 394-1 10.1.3 (own measurement path)
     void drawVem(float width) {
         if (decoder_mode != 0) { return; }
         ImGui::Separator();

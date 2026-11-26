@@ -115,10 +115,11 @@ public:
         o << "<div class=\"grid\">";
         tile(o, "Level (mean)", lv.n ? num(lv.mean, 1) + " " + unit : "&ndash;", lv.n ? "min " + num(lv.min, 1) + ", max " + num(lv.max, 1) : "");
         tile(o, "MER (mean)", mer.n ? num(mer.mean, 1) + " dB" : "&ndash;", mer.n ? "min " + num(mer.min, 1) + " dB" : "");
-        tile(o, "EVM rms (mean)", evm.n ? num(evm.mean, 1) + " %" : "&ndash;", "ETSI limit 10 %");
+        tile(o, "EVM rms (mean)", evm.n ? num(evm.mean, 1) + " %" : "&ndash;", "guide value; ETSI limit 10 % per burst (10.1.3)");
         tile(o, "CRC errors", crc.n ? num(crc.mean, 2) + " %" : "&ndash;", crc.n ? "worst second " + num(crc.max, 1) + " %" : "");
         tile(o, "Sync losses", std::to_string(d.syncLostTotal), d.berTotal >= 0 ? "raw BER " + sci(d.berTotal) : "");
-        tile(o, "Carrier vs. SYSINFO", ppb.n ? num(ppb.mean, 1) + " ppb" : "&ndash;", "BS + SDR error, ETSI BS +-200 ppb");
+        // TS 100 394-1 V4.1.1 7.3.2.2: BS +-0.2 ppm up to 520 MHz, +-0.1 ppm above
+        tile(o, "Carrier vs. SYSINFO", ppb.n ? num(ppb.mean, 1) + " ppb" : "&ndash;", d.dlFreq > 520e6 ? "BS + SDR error, ETSI BS +-100 ppb" : "BS + SDR error, ETSI BS +-200 ppb");
         o << "</div>\n";
 
         // ---- cell ----

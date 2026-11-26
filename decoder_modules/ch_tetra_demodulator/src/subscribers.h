@@ -130,7 +130,7 @@ public:
     }
     // "Mute encrypted": encryption state of the call on timeslot ts (1..4).
     // Kept per timeslot for the current call, linked by the call identifier:
-    // set by D-SETUP / D-CONNECT (basic service information, EN 300 392-2
+    // set by D-SETUP / D-CONNECT (basic service information, TS 100 392-2
     // 14.8.2), confirmed by D-TX-GRANTED of the same call, cleared by
     // D-RELEASE / D-DISCONNECT - independent of the age of the channel
     // allocation, so a long call with several transmissions keeps its state.
@@ -140,7 +140,7 @@ public:
     // CALL_IDLE_S falls back to unknown, so a stale "clear" (its D-RELEASE and
     // the next D-SETUP on the timeslot both missed) cannot keep a slot audible.
     enum ListenEnc { LISTEN_CLEAR = 0, LISTEN_ENCRYPTED = 1, LISTEN_UNKNOWN = 2 };
-    // EN 300 392-2 V3.8.1 14.6, table 14.3 (protocol timers): one transmission may last up to
+    // TS 100 392-2 V3.10.1 14.6, table 14.3 (protocol timers): one transmission may last up to
     // T311 = 300 s (call transmission timer, maximum) without any further PDU of
     // the call; every new transmission starts with D-TX-GRANTED and the hang
     // time ends with D-TX-GRANTED or D-RELEASE. 300 s + 20 s margin.
@@ -208,7 +208,7 @@ public:
         te.lon = ev.lon;
 
         bool addrValid = ev.addr_ssi != 0 && ev.addr_ssi <= 0xFFFFFF;
-        // Classification (EN 300 392-2): the basic service's communication type
+        // Classification (TS 100 392-2): the basic service's communication type
         // tells whether the call address is a group; calling/transmitting
         // parties and MM-addressed SSIs are always individual.
         if (addrValid && ev.comm_type >= 0 && (ev.type == TETRA_L3_CALL_SETUP || ev.type == TETRA_L3_CALL_CONNECT)) {

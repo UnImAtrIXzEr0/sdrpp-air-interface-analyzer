@@ -106,6 +106,7 @@ namespace ui_text {
             { "EVM rms / peak", "EVM rms / Spitze" },
             { "Error phase / ampl.", "Fehler Phase / Ampl." },
             { "Residual carrier", "Trägerrest" },
+            { "EVM, residual carrier: guide values (standard: 10.1.3)", "EVM, Trägerrest: Richtwerte (Norm: 10.1.3)" },
             { "I/Q imbalance (IRR)", "I/Q-Unsymmetrie (IRR)" },
             { "Carrier error", "Trägerablage" },
             { "UL mod. accuracy", "UL-Modulationsgenauigkeit" },
