@@ -12,6 +12,7 @@
 #include <map>
 #include <vector>
 #include "tx_analysis_math.h"
+#include "etsi_ul_vem.h"
 
 struct TetraBurstResult {
     int state = 0;                 // 0 no data, 1 no bursts (no transmission or continuous), 2 bursts
@@ -53,6 +54,25 @@ struct TetraBurstResult {
     bool desenseValid = false;
     int desenseN = 0;
     float desenseDb = NAN;   // > 0: downlink weaker during the bursts
+    // modulation accuracy and frequency error of the uplink bursts (ETSI
+    // TS 100 394-1 V4.1.1, 10.1.3 and 10.2.1, see etsi_ul_vem.h), statistics
+    // over the last TARGET measured bursts; limits "in any burst" apply to
+    // the worst burst (the maxima)
+    struct UlVem {
+        static constexpr int TARGET = 200;   // TS 100 394-1 10.1.3 b), 10.2.1 b)
+        bool on = false;
+        bool cellKnown = false;    // scrambling code known: CRC-checked ideal symbols possible
+        int n = 0;                 // bursts in the statistics
+        uint64_t measured = 0, rejected = 0;
+        int nNub1 = 0, nNub2 = 0, nCb = 0;
+        int nCrc = 0, nPartial = 0, nDecision = 0;   // where S(k) came from
+        double rmsMean = NAN, rmsMax = NAN;
+        double peakMax = NAN;
+        int peakMaxSym = -1;       // SN of the largest peak vector error
+        int decisionOver = 0;      // bursts with S(k) from decisions and a peak > 0.3 (decisions less certain)
+        double c0Mean = NAN, c0Max = NAN;
+        double freqMean = NAN, freqStd = NAN, freqMaxAbs = NAN;   // Hz vs. the tap frequency
+    } ulVem;
 };
 
 class TetraBurstDsp {
@@ -79,6 +99,18 @@ public:
         acc = TetraBurstResult();
         recent.clear();
         processedValid = false;
+        vemHist.clear();
+        vemMeasured = 0;
+        vemRejected = 0;
+    }
+
+    // modulation accuracy of the bursts: on/off, scrambling code of the cell
+    // (0: not known) and samples per symbol of the SDR (sample clock)
+    void setUlVem(bool on, uint32_t scr, double sps) {
+        if (scr != vemScr) { vemHist.clear(); }
+        vemOn = on;
+        vemScr = scr;
+        vemSps = sps > 0.0 ? sps : (double)etsi_vem::SPS;
     }
 
     const TetraBurstResult& result() const { return acc; }
@@ -92,6 +124,7 @@ public:
                  const std::vector<std::complex<float>>* raw = nullptr, int rawDelay = 0,
                  const std::vector<std::complex<float>>* dl = nullptr) {
         curRaw = raw;
+        curX = &x;
         curDl = (dl && dl->size() == x.size()) ? dl : nullptr;
         curRawDelay = rawDelay;
         const size_t W = x.size();
@@ -178,6 +211,8 @@ public:
         if (!prof[c].empty()) { evaluate(c, fl); }
         acc.fs = FS;
         acc.preS = PRE;
+        vemResult();
+        curX = nullptr;
         if (desenseCount > 0) {
             acc.desenseValid = desenseCount >= 3;
             acc.desenseN = desenseCount;
@@ -226,6 +261,7 @@ private:
         pbAvg[cls] = n == 1 ? pb : pbAvg[cls] + a * (pb - pbAvg[cls]);
         if (cls == 0) { acc.nFull++; } else { acc.nHalf++; }
         recent.push_back(nowS);
+        if (vemOn && curX) { vemBurst(0.5 * (double)(i + j), cls == 0 ? 2 : 1); }
         // overload check: downlink power in the useful part of the burst vs.
         // 1..3 ms before and after it (the downlink is continuous)
         if (curDl && i >= 3 * ms1 && j + 3 * ms1 < W) {
@@ -427,6 +463,51 @@ private:
         return true;
     }
 
+    // one burst: centre (x index) and length class (2 full, 1 half slot)
+    void vemBurst(double centre, int length) {
+        etsi_ul_vem::Meas m = etsi_ul_vem::measureBurst(*curX, centre, length, vemScr, vemSps);
+        if (!m.ok) { vemRejected++; return; }
+        vemMeasured++;
+        vemHist.push_back(m);
+        while ((int)vemHist.size() > TetraBurstResult::UlVem::TARGET) { vemHist.pop_front(); }
+    }
+    void vemResult() {
+        TetraBurstResult::UlVem r;
+        r.on = vemOn;
+        r.cellKnown = vemScr != 0;
+        r.measured = vemMeasured;
+        r.rejected = vemRejected;
+        r.n = (int)vemHist.size();
+        if (r.n > 0) {
+            double sr = 0.0, sc = 0.0, sf = 0.0, sff = 0.0;
+            r.rmsMax = r.peakMax = r.c0Max = r.freqMaxAbs = 0.0;
+            for (const etsi_ul_vem::Meas& m : vemHist) {
+                if (m.type == etsi_ul_vem::UL_NUB1) { r.nNub1++; } else if (m.type == etsi_ul_vem::UL_NUB2) { r.nNub2++; } else { r.nCb++; }
+                if (m.src == etsi_ul_vem::SRC_CRC) { r.nCrc++; } else if (m.src == etsi_ul_vem::SRC_PARTIAL) { r.nPartial++; } else { r.nDecision++; }
+                sr += m.fit.rmsVe;
+                sc += m.fit.residualCarrier;
+                sf += m.freqHz;
+                sff += m.freqHz * m.freqHz;
+                r.rmsMax = (std::max)(r.rmsMax, m.fit.rmsVe);
+                r.c0Max = (std::max)(r.c0Max, m.fit.residualCarrier);
+                r.freqMaxAbs = (std::max)(r.freqMaxAbs, std::fabs(m.freqHz));
+                if (m.fit.peakVe > r.peakMax) { r.peakMax = m.fit.peakVe; r.peakMaxSym = m.fit.peakSym + 1; }
+                if (m.src != etsi_ul_vem::SRC_CRC && m.fit.peakVe > 0.3) { r.decisionOver++; }
+            }
+            r.rmsMean = sr / r.n;
+            r.c0Mean = sc / r.n;
+            r.freqMean = sf / r.n;
+            r.freqStd = r.n > 1 ? std::sqrt((std::max)(0.0, (sff - sf * sf / r.n) / (r.n - 1))) : 0.0;
+        }
+        acc.ulVem = r;
+    }
+
+    const std::vector<std::complex<float>>* curX = nullptr;
+    bool vemOn = false;
+    uint32_t vemScr = 0;
+    double vemSps = etsi_vem::SPS;
+    std::deque<etsi_ul_vem::Meas> vemHist;
+    uint64_t vemMeasured = 0, vemRejected = 0;
     const std::vector<std::complex<float>>* curRaw = nullptr;
     const std::vector<std::complex<float>>* curDl = nullptr;
     double desenseDbAvg = 0.0;

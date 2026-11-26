@@ -18,6 +18,7 @@
 #include <random>
 #include <vector>
 #include "etsi_ul_vem.h"
+#include "burst_dsp.h"
 
 using cf = std::complex<float>;
 using namespace etsi_ul_vem;
@@ -250,6 +251,50 @@ int main() {
         Meas r = measureBurst(y, t1 + (n - 1) * SPS / 2.0, 2, scr);
         printf("-- droop 1 dB: RMS %.4f, expected %.4f\n", r.fit.rmsVe, want);
         CHECK(r.ok && std::fabs(r.fit.rmsVe - want) < 0.002, "droop of 1 dB shows up in the RMS vector error");
+    }
+    // burst analysis (burst_dsp.h): power detection, then the measurement of
+    // every burst and the statistics. A mobile station sends one slot per TDMA
+    // frame (4 slots of 255 symbols); here 60 normal uplink bursts with E 5 %,
+    // C0 2 %, +60 Hz, then 30 control uplink bursts.
+    {
+        const int SLOT = 255 * SPS;
+        const int nNub = 60, nCb = 30, nb = nNub + nCb;
+        std::vector<cf> stream((size_t)(nb + 8) * 4 * SLOT, cf(0.0f, 0.0f));   // room after the last burst for the window steps
+        double sumRms = 0.0;
+        for (int b = 0; b < nb; b++) {
+            Case c = { "", b < nNub ? UL_NUB1 : UL_CB, false, 60.0, 0.02, 0.0, 999.0, false, 0.0, 0.05 };
+            std::vector<uint8_t> sent;
+            std::vector<cf> y;
+            double t1, eRms, ePeak;
+            makeBurst(c, scr, rng, sent, y, t1, eRms, ePeak);
+            sumRms += eRms;
+            // frequency error continuous over the stream: the burst carries its own phase anyway
+            const size_t at = (size_t)(b + 1) * 4 * SLOT;
+            for (size_t k = 0; k < y.size() && at + k < stream.size(); k++) { stream[at + k] += y[k]; }
+        }
+        // weak noise everywhere (floor for the power detection)
+        std::normal_distribution<float> nd(0.0f, 1.0f);
+        double pk = 0.0;
+        for (auto& v : stream) { pk = (std::max)(pk, (double)std::norm(v)); }
+        const float sg = (float)std::sqrt(pk * 1e-6);
+        for (auto& v : stream) { v += cf(sg * nd(rng), sg * nd(rng)); }
+        TetraBurstDsp dsp;
+        dsp.setUlVem(true, scr, 0.0);
+        const size_t WIN = (size_t)(TetraBurstDsp::FS * 0.6), STEP = (size_t)(TetraBurstDsp::FS * 0.15);
+        double now = 0.0;
+        for (size_t end = WIN; end <= stream.size(); end += STEP, now += 0.15) {
+            std::vector<cf> x(stream.begin() + (end - WIN), stream.begin() + end);
+            dsp.process(x, end - WIN, now, 20);
+        }
+        const TetraBurstResult::UlVem& r = dsp.result().ulVem;
+        printf("-- burst analysis: %d in statistics (%llu measured, %llu rejected), NUB1 %d, CB %d, CRC %d; RMS mean %.4f (put in %.4f) max %.4f, C0 mean %.4f, df mean %.2f Hz std %.2f\n",
+               r.n, (unsigned long long)r.measured, (unsigned long long)r.rejected, r.nNub1, r.nCb, r.nCrc, r.rmsMean, sumRms / nb, r.rmsMax, r.c0Mean, r.freqMean, r.freqStd);
+        CHECK(r.on && r.cellKnown, "measurement on, cell known");
+        CHECK(r.measured == (uint64_t)nb && r.rejected == 0 && r.n == nb, "every burst measured once");
+        CHECK(r.nNub1 == nNub && r.nCb == nCb && r.nCrc == nb, "burst types and CRC-checked ideal symbols");
+        CHECK(std::fabs(r.rmsMean - sumRms / nb) < 0.003, "mean RMS vector error as put in");
+        CHECK(std::fabs(r.c0Mean - 0.02) < 0.003, "mean residual carrier as put in");
+        CHECK(std::fabs(r.freqMean - 60.0) < 0.5, "mean frequency error as put in");
     }
     // nothing in the middle: no burst must be found in pure noise
     {

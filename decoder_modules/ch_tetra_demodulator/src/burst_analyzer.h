@@ -122,6 +122,15 @@ public:
         if (knownCarrier.load() && r.continuous) { r.gapDbfs = NAN; }
         return r;
     }
+    // modulation accuracy and frequency error of the bursts (TS 100 394-1 10.1.3,
+    // 10.2.1): mcc/mnc/cc of the cell for the scrambling code (0/0: not known,
+    // ideal symbols from the decisions only); sps: samples per symbol of the
+    // SDR (sample clock), <= 0 = nominal
+    void setUlVem(bool on, uint16_t mcc, uint16_t mnc, uint8_t cc, double sps) {
+        vemOnReq.store(on);
+        vemScrReq.store((mcc || mnc) ? ::tetra_scramb_get_init(mcc, mnc, cc) : 0u);
+        vemSpsReq.store(sps > 0.0 ? sps : 8.0);
+    }
     // set while the tap sits on a carrier the decoder is locked to
     void setKnownCarrier(bool c) { knownCarrier.store(c); }
 
@@ -664,6 +673,7 @@ private:
                 }
             }
             if (resetReq.exchange(false)) { dsp.reset(); }
+            dsp.setUlVem(vemOnReq.load(), vemScrReq.load(), vemSpsReq.load());
             double nowS = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
             dsp.process(x, end - WIN, nowS, avgReq.load(), transReq.load() ? &raw : nullptr, ulFilter.delay(), dlAligned.empty() ? nullptr : &dlAligned);
             std::lock_guard<std::mutex> lck(resMtx);
@@ -763,6 +773,9 @@ private:
     bool stopFlag = false;
 
     std::atomic<int> avgReq { 20 };
+    std::atomic<bool> vemOnReq { false };
+    std::atomic<uint32_t> vemScrReq { 0 };
+    std::atomic<double> vemSpsReq { 8.0 };
     std::atomic<bool> resetReq { false };
     std::mutex resMtx;
     TetraBurstResult res;

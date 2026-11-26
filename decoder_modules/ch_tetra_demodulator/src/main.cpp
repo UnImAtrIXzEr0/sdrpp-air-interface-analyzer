@@ -5689,6 +5689,14 @@ private:
         burstAn.setKnownCarrier(burstSt.source == 2 && osmotetradecoder.getRxState() == 2);
         // overload check: downlink tap on the TETRA VFO (not when the bursts are measured there)
         double dlTap = (burstSt.overloadCheck && burstSt.source != 2) ? mainVfoFreq() : 0.0;
+        {
+            // modulation accuracy of mobile station bursts: cell from the decoder (scrambling
+            // code), sample clock of the SDR from the downlink modulation accuracy if measured
+            TetraMeasSnapshot cm = meas.get();
+            double ppm = vemRun ? vemAn.get().clockPpm : NAN;
+            double sps = std::isfinite(ppm) ? etsi_vem::SPS * (1.0 + ppm * 1e-6) : 0.0;
+            burstAn.setUlVem(burstSt.station == 0, (uint16_t)cm.mcc, (uint16_t)cm.mnc, (uint8_t)cm.cc, sps);
+        }
         burstAn.loop(enabled && burstRun, f, dlTap);
         clockCal.loop(enabled && vfo != nullptr && decoder_mode == 0, meas.get());
         chanAn.loop(enabled && mpRun && vfo != nullptr, mainVfoFreq());
