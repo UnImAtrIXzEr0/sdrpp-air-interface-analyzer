@@ -26,7 +26,7 @@
 #include "gps.h"
 #include "trend.h"
 
-#define TETRA_PLUGIN_VERSION "0.26.0-test"
+#define TETRA_PLUGIN_VERSION "0.26.0-test.2"
 
 struct TetraMeasSnapshot {
     bool valid = false;
@@ -91,6 +91,16 @@ struct TetraMeasSnapshot {
     // Cell lock: -1 = no lock set, 0 = other/no cell received, 1 = locked cell
     int cellMatch = -1;
     float levelCalDb = 0.0f;
+};
+
+// uplink burst measurement for the CSV log (burst analysis, statistics over the
+// last 200 bursts: TS 100 394-1 10.1.3 / 10.2.1); set by the GUI thread
+struct TetraUlLog {
+    bool valid = false;        // burst analysis on, mobile station, at least one burst
+    int n = 0, chkN = 0, decN = 0, othN = 0;
+    double chkRmsMax = NAN, chkPeak = NAN, chkC0Max = NAN, decRmsMax = NAN;   // fraction (0.1 = 10 %)
+    double freqMean = NAN, freqMaxAbs = NAN;   // Hz vs. the analysed frequency
+    double msVsBs = NAN;                       // Hz, downlink error scaled to the uplink removed
 };
 
 class TetraMeasurements {
@@ -164,6 +174,10 @@ public:
 
     void setGps(NmeaGps* gps) { _gps = gps; }
     void setLevelCal(float db) { levelCal.store(db); }
+    void setUlLog(const TetraUlLog& u) {
+        std::lock_guard<std::mutex> lck(logMtx);
+        ulLog = u;
+    }
 
     // Cell lock for coverage measurements (0 = don't care for that field)
     struct CellLock {
@@ -213,7 +227,9 @@ public:
                          "crc_bsch_ok;crc_bsch_fail;crc_sb2_ok;crc_sb2_fail;crc_ndb_ok;crc_ndb_fail;crc_schf_ok;crc_schf_fail;"
                          "mcc;mnc;cc;dl_freq_hz;ul_freq_hz;ts1;ts2;ts3;ts4;"
                          "level_dbm;cell_match;gps_fix;lat;lon;alt_m;speed_kmh;sats;hdop;"
-                         "ts1_traffic_pct;ts2_traffic_pct;ts3_traffic_pct;ts4_traffic_pct;carrier_vs_sysinfo_hz\n");
+                         "ts1_traffic_pct;ts2_traffic_pct;ts3_traffic_pct;ts4_traffic_pct;carrier_vs_sysinfo_hz;"
+                         "ul_vem_n;ul_chk_n;ul_chk_rms_max_pct;ul_chk_peak_pct;ul_chk_c0_max_pct;ul_dec_n;ul_dec_rms_max_pct;ul_oth_n;"
+                         "ul_freq_mean_hz;ul_freq_max_abs_hz;ul_ms_vs_bs_hz\n");
         fflush(logFile);
         eventFile = fopen((logPath.substr(0, logPath.size() - 4) + "_events.csv").c_str(), "w");
         if (eventFile) { fprintf(eventFile, "time;event\n"); fflush(eventFile); }
@@ -494,7 +510,18 @@ private:
             if (std::isnan(pct)) { fprintf(logFile, ";"); }
             else { fprintf(logFile, "%.0f;", pct); }
         }
-        if (s.absErrValid) { fprintf(logFile, "%.2f\n", s.absErrHz); } else { fprintf(logFile, "\n"); }
+        if (s.absErrValid) { fprintf(logFile, "%.2f;", s.absErrHz); } else { fprintf(logFile, ";"); }
+        // uplink bursts (empty when not measured)
+        auto pct = [&](double v) { if (std::isfinite(v)) { fprintf(logFile, "%.2f;", v * 100.0); } else { fprintf(logFile, ";"); } };
+        if (ulLog.valid) {
+            fprintf(logFile, "%d;%d;", ulLog.n, ulLog.chkN);
+            pct(ulLog.chkRmsMax); pct(ulLog.chkPeak); pct(ulLog.chkC0Max);
+            fprintf(logFile, "%d;", ulLog.decN);
+            pct(ulLog.decRmsMax);
+            fprintf(logFile, "%d;%.2f;%.2f;", ulLog.othN, ulLog.freqMean, ulLog.freqMaxAbs);
+            if (std::isfinite(ulLog.msVsBs)) { fprintf(logFile, "%.2f\n", ulLog.msVsBs); } else { fprintf(logFile, "\n"); }
+        }
+        else { fprintf(logFile, ";;;;;;;;;;\n"); }
         if (trafficFile && _subs) {
             bool en = _stationsEnabled ? _stationsEnabled() : true;
             auto tr = _subs->takeNewTraffic();
@@ -620,6 +647,7 @@ private:
     uint32_t baseOk[4] = { 0 }, baseFail[4] = { 0 };
 
     std::mutex logMtx;
+    TetraUlLog ulLog;
     FILE* logFile = nullptr;
     FILE* stationFile = nullptr;
     FILE* eventFile = nullptr;

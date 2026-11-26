@@ -413,7 +413,7 @@ namespace etsi_ul_vem {
         bool mirror = false;
         int bitErrors = 0;         // decisions vs. CRC-checked bits
         etsi_vem::Fit fit;         // rmsVe, peakVe (peakSym: 0 = SN1), residualCarrier
-        double freqHz = NAN;       // df (TS 100 394-1 10.2.1) vs. the tap, sign of the real spectrum
+        double freqHz = NAN;       // df (TS 100 394-1 10.2.1) vs. the tap, in the tap's spectrum like the downlink error
         const char* why = "";
     };
     // centre / length: from the power detection (see findBurst); scr: scrambling
@@ -435,7 +435,9 @@ namespace etsi_ul_vem {
         m.nsym = n;
         m.mirror = f.mirror;
         m.bitErrors = id.bitErrors;
-        m.freqHz = f.mirror ? -m.fit.freqHz : m.fit.freqHz;
+        // S(k) carries the rotation sense, so the fit gives the frequency as seen
+        // in the tap whatever the sense: no change of sign
+        m.freqHz = m.fit.freqHz;
         m.ok = true;
         return m;
     }

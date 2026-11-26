@@ -71,6 +71,25 @@ void MainWindow::init() {
     modulesDir = std::filesystem::absolute(modulesDir).string();
     resourcesDir = std::filesystem::absolute(resourcesDir).string();
 
+    // Loading screen progress: count the LoadingScreen::show() calls that follow
+    {
+        int steps = 2; // "Loading color maps", "Loading configuration"
+        std::error_code ec;
+        if (std::filesystem::is_directory(modulesDir, ec)) {
+            for (const auto& file : std::filesystem::directory_iterator(modulesDir, ec)) {
+                if (file.path().extension().generic_string() == SDRPP_MOD_EXTENTSION && file.is_regular_file(ec)) { steps++; }
+            }
+        }
+        if (std::filesystem::is_directory(resourcesDir + "/colormaps", ec)) {
+            for (const auto& file : std::filesystem::directory_iterator(resourcesDir + "/colormaps", ec)) { (void)file; steps++; }
+        }
+        core::configManager.acquire();
+        if (core::configManager.conf["modules"].is_array()) { steps += (int)core::configManager.conf["modules"].size(); }
+        if (core::configManager.conf["moduleInstances"].is_object()) { steps += (int)core::configManager.conf["moduleInstances"].size(); }
+        core::configManager.release();
+        LoadingScreen::expectSteps(steps);
+    }
+
     dsp::buffer::runVerifier();
 
     // Load menu elements
