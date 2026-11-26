@@ -36,10 +36,17 @@ public:
     void invalidate() { cacheSeq = (uint64_t)-1; }
 
     // draws the panels; store = live data
+    // fitH > 0: total height given by the caller (instrument view fills its main view)
+    float fitH = 0.0f;
+    float nominalH() const {
+        int n = 0;
+        for (int i = 0; i < P_COUNT; i++) { if (show[i]) { n++; } }
+        return (std::max)(n, 1) * 78.0f * style::uiScale + 18.0f * style::uiScale;
+    }
     void draw(const std::string& id, float width, TetraTrendStore& store, const TetraConstellationView::Palette& pal) {
-        const float ph = 78.0f * style::uiScale;
         int nPanels = 0;
         for (int i = 0; i < P_COUNT; i++) { if (show[i]) { nPanels++; } }
+        const float ph = fitH > 0.0f && nPanels > 0 ? (std::max)((fitH - 18.0f * style::uiScale) / nPanels, 30.0f * style::uiScale) : 78.0f * style::uiScale;
         if (nPanels == 0) { tw::TextDisabled("No panel selected."); return; }
         const float lm = 46.0f * style::uiScale;
         int cols = (std::max)(10, (int)(width - lm - 6.0f));

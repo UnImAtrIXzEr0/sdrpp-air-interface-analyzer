@@ -25,6 +25,9 @@ namespace ui_text {
             { "MODE", "MODUS" },
             { "SOFTKEYS", "SOFTKEYS" },
             { "VIEW", "ANSICHT" },
+            { "SETUP", "EINRICHTUNG" },
+            { "View:", "Ansicht:" },
+            { "Page %d/%d", "Seite %d/%d" },
             // status bar
             { "Sync", "Sync" },
             { "Locked", "Eingerastet" },
@@ -166,7 +169,7 @@ namespace ui_text {
             { "Device", "Gerät" },
             { "Application TETRA", "Applikation TETRA" },
             { "Display & operation", "Anzeige & Bedienung" },
-            { "SDR & calibration", "SDR & Kalibrierung" },
+            { "Spectrum & waterfall", "Spektrum & Wasserfall" },
             { "Audio & recording", "Audio & Aufnahme" },
             { "Modules", "Module" },
             { "Module manager", "Modulverwaltung" },
