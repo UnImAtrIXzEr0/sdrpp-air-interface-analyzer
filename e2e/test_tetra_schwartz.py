@@ -844,6 +844,50 @@ def test_clock_cal():
     return True
 
 
+def test_ul_vem():
+    """Modulation accuracy and frequency error of uplink bursts (etsi_ul_vem.h,
+    burst_dsp.h; TS 100 394-1 10.1.3 / 10.2.1): synthetic normal and control
+    uplink bursts with known vector error, residual carrier, frequency error,
+    droop, noise and inverted spectrum - burst type, timing, ideal symbols
+    (CRC-checked or decided) and the measured values."""
+    stats.test_start("test_ul_vem")
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(here)
+    d = os.path.join(root, "decoder_modules", "ch_tetra_demodulator", "src")
+    dec = os.path.join(d, "decoder", "src")
+    cxx = os.environ.get("CXX", "g++")
+    cc = os.environ.get("CC", "gcc")
+    if shutil.which(cxx) is None or shutil.which(cc) is None:
+        stats.test_pass("test_ul_vem", f"skipped (no compilers '{cc}' / '{cxx}')")
+        return True
+    tmpdir = tempfile.mkdtemp(prefix="tetra_ulvem_")
+    objs = []
+    for name in ["tetra_scramb", "tetra_interleave", "tetra_conv_enc", "crc_simple", "tetra_rm3014", "viterbi", "viterbi_cch", "osmo_conv"]:
+        o = os.path.join(tmpdir, name + ".o")
+        r = subprocess.run([cc, "-c", "-O2", "-I" + dec, os.path.join(dec, "lower_mac", name + ".c"), "-o", o],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            stats.test_fail("test_ul_vem", "compile error (" + name + "): " + r.stderr[-400:])
+            return False
+        objs.append(o)
+    exe = os.path.join(tmpdir, "test_ul_vem")
+    r = subprocess.run([cxx, "-O2", "-std=c++17", "-I" + d, "-I" + dec,
+                        os.path.join(here, "gen", "test_ul_vem.cpp")] + objs + ["-o", exe],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        stats.test_fail("test_ul_vem", "compile error: " + r.stderr[-400:])
+        return False
+    r = subprocess.run([exe], capture_output=True, text=True, timeout=120)
+    stats.info("\n".join(l for l in r.stdout.splitlines() if not l.startswith("ok:")))
+    if r.returncode != 0:
+        bad = [l for l in r.stdout.splitlines() if l.startswith("FAIL")]
+        stats.test_fail("test_ul_vem", "; ".join(bad[:10]) or "failed")
+        return False
+    stats.test_pass("test_ul_vem", "burst type, timing and ideal symbols found; vector error, residual carrier and frequency as put in")
+    return True
+
+
 def test_map_export():
     """Map export for Google Earth (map_export.h): KMZ and KML with one
     folder per value, no-service points, route, time stamps in UTC and the
@@ -935,7 +979,8 @@ if __name__ == "__main__":
     r7 = test_listen_mute()
     r8 = test_clock_cal()
     r9 = test_map_export()
-    res = [r1, r2, r3, r4, r5, r6, r7, r8, r9]
+    r10 = test_ul_vem()
+    res = [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10]
     ok = all(res)
     stats.final_summary(len(res), sum(int(r) for r in res), sum(int(not r) for r in res))
     sys.exit(0 if ok else 1)
