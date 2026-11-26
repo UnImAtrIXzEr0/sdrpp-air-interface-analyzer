@@ -50,6 +50,7 @@
 #include "vem_analyzer.h"
 #include "tetra_help.h"
 #include <gui/touch.h>
+#include <gui/menus/source.h>
 #include "eval_view.h"
 #include "alarms.h"
 #include "report.h"
@@ -543,19 +544,25 @@ public:
             return "{\"status\": \"ok\"}";
         }
         if (cmd == "inst") {
-            // instrument UI: "ui 0|1", "mode 0..3", "view 0..6", "lang en|de", "settings <page>|-1",
+            // instrument UI: "ui 0|1", "mode 0..3", "view 0..6", "page 0|1 [0..3]|2" (main area: view,
+            // cell details [sub page], events), "lang en|de", "settings <page>|-1",
             // "rf 0|1", "drive <csv path>", "site <lat> <lon>", "tiles <key>|off|refresh|file://...",
             // "savemap <name> <lat> <lon> <km> <z>", "mapsdlg", "state" (tests, screenshots)
             std::string k = args.substr(0, args.find(' '));
             std::string v = args.find(' ') == std::string::npos ? "" : args.substr(args.find(' ') + 1);
             if (k == "ui") { instUi = (v == "1"); }
-            else if (k == "mode") { instMode = std::clamp(atoi(v.c_str()), 0, (int)IM_COUNT - 1); }
-            else if (k == "view") { instView = std::clamp(atoi(v.c_str()), 0, (int)IV_COUNT - 1); }
+            else if (k == "mode") { instMode = std::clamp(atoi(v.c_str()), 0, (int)IM_COUNT - 1); instPage = 0; }
+            else if (k == "view") { instView = std::clamp(atoi(v.c_str()), 0, (int)IV_COUNT - 1); instPage = 0; }
+            else if (k == "page") {
+                // "page 1 <sub>": cell details with sub page 0..2
+                instPage = std::clamp(atoi(v.c_str()), 0, 2);
+                if (v.find(' ') != std::string::npos) { cellSubPage = std::clamp(atoi(v.substr(v.find(' ') + 1).c_str()), 0, 3); }
+            }
             else if (k == "lang") { ui_text::lang() = (v == "de") ? ui_text::DE : ui_text::EN; }
             else if (k == "settings") {
                 int pg = atoi(v.c_str());
                 if (pg < 0) { settingsCloseReq = true; }
-                else { settingsPage = std::clamp(pg, 0, 10); settingsOpen = true; }
+                else { settingsPage = std::clamp(pg, 0, 11); settingsOpen = true; }
             }
             else if (k == "rf") { rfOpen = (v == "1"); }
             else if (k == "mapsdlg") { mapsDlgOpen = true; }
@@ -879,6 +886,22 @@ private:
             char ts[16];
             strftime(ts, sizeof(ts), "%H:%M:%S", &lt);
             bool isLoss = it->text.rfind("SYNC", 0) == 0 || it->text.find("slip ") != std::string::npos;
+            if (paged) {
+                // one line per event (the page holds as many as fit): shortened to the width, full text as tooltip
+                ImGui::TextDisabled("%s", ts);
+                ImGui::SameLine();
+                float room = ImGui::GetContentRegionAvail().x;
+                std::string t = it->text;
+                bool cut = ImGui::CalcTextSize(t.c_str()).x > room;
+                if (cut) {
+                    while (!t.empty() && ImGui::CalcTextSize((t + "...").c_str()).x > room) { t.pop_back(); }
+                    t += "...";
+                }
+                if (isLoss) { ImGui::TextColored(warn, "%s", t.c_str()); }
+                else { ImGui::TextUnformatted(t.c_str()); }
+                if (cut && ImGui::IsItemHovered()) { ImGui::SetTooltip("%s", it->text.c_str()); }
+                continue;
+            }
             tw::TextDisabled("%s", ts); tw::SameNext();
             if (isLoss) { tw::TextColored(warn, "%s", it->text.c_str()); }
             else { ImGui::TextUnformatted(it->text.c_str()); }
@@ -3365,6 +3388,7 @@ private:
 
     // main view: -1 = the normal waterfall, otherwise an own view
     int instMainKey() {
+        if (instPage > 0 && (instMode == IM_MONITOR || instMode == IM_MEASURE)) { return 400 + instPage; }
         switch (instMode) {
         case IM_MEASURE: return instView == IV_SPECTRUM ? -1 : 100 + instView;
         case IM_DRIVE: return 200;
@@ -3405,7 +3429,7 @@ private:
         }
         // strip below the main view only in Monitor (stations / network); the trends
         // are a view of their own (recorded in the background all the time)
-        bool wantBottom = (instMode == IM_MONITOR);
+        bool wantBottom = (instMode == IM_MONITOR && instPage == 0);
         if (wantBottom && !bottomRegistered) {
             gui::mainWindow.setBottomPanel([this]() { drawInstBottom(); }, &instBottomH);
             bottomRegistered = true;
@@ -3451,6 +3475,7 @@ private:
     }
     void setInstMode(int m) {
         instMode = std::clamp(m, 0, IM_COUNT - 1);
+        instPage = 0;
         saveInstConfig();
     }
 
@@ -3879,8 +3904,6 @@ private:
         drawSoftkeys();
         ImGui::EndChild();
         drawSettingsDialog();
-        drawCellDetailsDialog();
-        drawEventsDialog();
         drawGpsDialog();
         drawSiteDialog();
         drawMapsDialog();
@@ -3950,6 +3973,7 @@ private:
         else { softH = hMax; }
         softCount = 0;
         softGroups = 0;
+        if (decoder_mode != 0 && instPage == 1) { instPage = 0; }   // no cell data without the built-in decoder
         softGroup("MODE");
         for (int i = 0; i < IM_COUNT; i++) {
             bool act = instMode == i;
@@ -3961,7 +3985,7 @@ private:
         case IM_MONITOR:
             if (softkey("Mute encrypted", "muteenc", listenMuteEnc ? 1 : 0)) { listenMuteEnc = !listenMuteEnc; saveListen(); }
             if (listenUnknownMask && softkey("Play anyway", "playany")) { listenPlayAnyway(); }
-            if (decoder_mode == 0 && softkey("Cell details", "celldet")) { cellDetailsOpen = true; }
+            if (decoder_mode == 0 && softkey("Cell details", "celldet", instPage == 1 ? 1 : 0)) { instPage = instPage == 1 ? 0 : 1; }
             if (stationsOn && decoder_mode == 0) {
                 if (softkey("Hide call control", "hidecc", trafficHideControl ? 1 : 0)) { trafficHideControl = !trafficHideControl; }
             }
@@ -3973,20 +3997,20 @@ private:
                 ImGui::SetNextWindowPos(ImVec2(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y));
                 if (ImGui::BeginPopup(CONCAT("##_sk_viewsel_pop_", name))) {
                     for (int v = 0; v < IV_COUNT; v++) {
-                        if (ImGui::Selectable(ui_text::T(instViewName(v)), instView == v)) { instView = v; saveInstConfig(); }
+                        if (ImGui::Selectable(ui_text::T(instViewName(v)), instView == v && instPage == 0)) { instView = v; instPage = 0; saveInstConfig(); }
                     }
                     ImGui::EndPopup();
                 }
             }
             else {
                 for (int v = 0; v < IV_COUNT; v++) {
-                    if (softkey(instViewName(v), std::string("view") + std::to_string(v), instView == v ? 1 : 0, nullptr, false)) { instView = v; saveInstConfig(); }
+                    if (softkey(instViewName(v), std::string("view") + std::to_string(v), (instView == v && instPage == 0) ? 1 : 0, nullptr, false)) { instView = v; instPage = 0; saveInstConfig(); }
                 }
             }
             softGroup("SOFTKEYS");
             if (softkey("Reset statistics", "reset")) { meas.resetTotals(); }
-            if (softkey("Events", "events")) { eventsOpen = true; }
-            if (decoder_mode == 0 && softkey("Cell details", "celldet")) { cellDetailsOpen = true; }
+            if (softkey("Events", "events", instPage == 2 ? 1 : 0)) { instPage = instPage == 2 ? 0 : 2; }
+            if (decoder_mode == 0 && softkey("Cell details", "celldet", instPage == 1 ? 1 : 0)) { instPage = instPage == 1 ? 0 : 1; }
             switch (instView) {
             case IV_CONST:
                 if (softkey("8 points (pi/4)", "c8", constellation8 ? 1 : 0)) { constellation8 = !constellation8; config.acquire(); config.conf[name]["constellation8"] = constellation8; config.release(true); }
@@ -4495,6 +4519,9 @@ private:
             instWorst = ok ? ST_OK : ST_BAD;
         }
         ImGui::Spacing();
+        instHeader(ui_text::T("SDR calibration"), w);
+        drawCalibrateRow(this, meas.get());
+        ImGui::Spacing();
         instHeader(ui_text::T("Procedure"), w);
         tw::TextDisabled("%s", ui_text::T("1 Set reference"));
         tw::TextDisabled("%s", ui_text::T("2 Adjust (crystal, level, I/Q, supply ...)"));
@@ -4510,7 +4537,10 @@ private:
         frameWork();
         ImGui::BeginChild(CONCAT("##_inst_main_", name), ImVec2(0, 0), false);
         ImVec2 a = ImGui::GetContentRegionAvail();
-        if (instMode == IM_MEASURE) {
+        if (instPage > 0 && (instMode == IM_MONITOR || instMode == IM_MEASURE)) {
+            drawInstPage(a.x);
+        }
+        else if (instMode == IM_MEASURE) {
             instHeader(ui_text::T(instViewName(instView)), a.x);
             a = ImGui::GetContentRegionAvail();
             float fy0 = ImGui::GetCursorPosY();
@@ -4541,6 +4571,42 @@ private:
         }
         touch::dragScroll();
         ImGui::EndChild();
+    }
+
+    // ---- cell details / events in the main area (softkeys), instead of a window ----
+    void drawInstPage(float w) {
+        if (instPage == 2) {
+            instHeader(ui_text::T("Events"), w);
+            drawEventsBody(this, true);
+            return;
+        }
+        instHeader(ui_text::T("Cell details"), w);
+        // sub pages instead of fold-out sections (a page never scrolls); a wide main
+        // area shows the CRC table next to the cell data, a narrow one on a page of its own
+        bool wide = w >= 640.0f * style::uiScale;
+        std::string items = std::string(ui_text::T("Cell")) + '\0' + ui_text::T("Cell parameters") + '\0' + ui_text::T("Network & neighbour cells") + '\0';
+        if (!wide) { items += std::string("CRC") + '\0'; }
+        else if (cellSubPage == 3) { cellSubPage = 0; }
+        tw::Segmented(CONCAT("_inst_cellsub_", name), &cellSubPage, items.c_str());
+        ImGui::Spacing();
+        if (cellSubPage == 1) { drawCellDetails(w, 1); return; }
+        if (cellSubPage == 2) { drawCellDetails(w, 2); return; }
+        TetraMeasSnapshot m = meas.get();
+        if (cellSubPage == 3) {
+            instHeader(ui_text::T("CRC of the logical channels"), w);
+            drawCrcTable(this, m);
+            return;
+        }
+        if (wide && ImGui::BeginTable(CONCAT("##_inst_cellpg_", name), 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            drawNetworkBody(ImGui::GetContentRegionAvail().x, false);
+            ImGui::TableSetColumnIndex(1);
+            instHeader(ui_text::T("CRC of the logical channels"), ImGui::GetContentRegionAvail().x);
+            drawCrcTable(this, m);
+            ImGui::EndTable();
+        }
+        else { drawNetworkBody(w, false); }
     }
 
     // ---- strip below the main view ----
@@ -5027,36 +5093,6 @@ private:
         }
     }
 
-    void drawEventsDialog() {
-        if (eventsOpen) { ImGui::OpenPopup(CONCAT("Events###_inst_ev_dlg_", name)); eventsOpen = false; }
-        ImVec2 vs = ImGui::GetMainViewport()->Size;
-        ImGui::SetNextWindowSize(ImVec2(vs.x * 0.55f, vs.y * 0.6f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(ImVec2(vs.x * 0.5f, vs.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        bool open = true;
-        std::string title = std::string(ui_text::T("Events")) + "###_inst_ev_dlg_" + name;
-        if (ImGui::BeginPopupModal(title.c_str(), &open)) {
-            drawEventsBody(this, true);
-            ImGui::EndPopup();
-        }
-    }
-
-    void drawCellDetailsDialog() {
-        if (cellDetailsOpen) { ImGui::OpenPopup(CONCAT("Cell details###_inst_cell_dlg_", name)); cellDetailsOpen = false; }
-        ImVec2 vs = ImGui::GetMainViewport()->Size;
-        ImGui::SetNextWindowSize(ImVec2(vs.x * 0.55f, vs.y * 0.75f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(ImVec2(vs.x * 0.5f, vs.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        bool open = true;
-        if (ImGui::BeginPopupModal(CONCAT("Cell details###_inst_cell_dlg_", name), &open)) {
-            drawNetworkBody(ImGui::GetContentRegionAvail().x);
-            if (decoder_mode == 0) {
-                ImGui::Spacing();
-                instHeader(ui_text::T("CRC of the logical channels"), ImGui::GetContentRegionAvail().x);
-                drawCrcTable(this, meas.get());
-            }
-            ImGui::EndPopup();
-        }
-    }
-
     // a section of the former SDR menu (core or another module), drawn with its
     // original controls; entry == nullptr: heading only
     void coreSection(const char* entry, const char* title, bool heading) {
@@ -5099,16 +5135,40 @@ private:
         }
     }
 
-    // RF / Gain: the SDR source section in a small window that stays open
-    // next to the measurement (the gain is needed often in operation)
+    // RF / Gain: what is needed often in operation, in a small window that stays
+    // open next to the measurement: the RF gain and AFC & level with their live
+    // values. The SDR itself (source, device, sample rate) is set in Settings > SDR.
     void drawRfWindow() {
         if (!rfOpen) { return; }
         ImVec2 vs = ImGui::GetMainViewport()->Size;
-        ImGui::SetNextWindowSize(ImVec2(420.0f * style::uiScale, (std::min)(vs.y * 0.7f, 620.0f * style::uiScale)), ImGuiCond_FirstUseEver);
+        // fixed width, the height follows the content (never scrolls)
+        ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f * style::uiScale, 0.0f), ImVec2(420.0f * style::uiScale, vs.y));
         ImGui::SetNextWindowPos(ImVec2(vs.x * 0.5f, vs.y * 0.3f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.0f));
         std::string title = std::string(ui_text::T("RF / Gain")) + "###_inst_rf_" + name;
-        if (ImGui::Begin(title.c_str(), &rfOpen, ImGuiWindowFlags_NoCollapse)) {
-            if (!gui::menu.drawEntry("Source")) { tw::TextDisabled("not available"); }
+        if (ImGui::Begin(title.c_str(), &rfOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
+            float w = ImGui::GetContentRegionAvail().x;
+            instHeader(ui_text::T("RF gain"), w);
+            SourceGainInterface* g = findGainInterface();
+            if (g && g->gainControllable() && g->gainStepCount() > 1) {
+                // the gain steps of the SDR (same control as in its own settings)
+                int st = g->gainStep();
+                std::string lbl;
+                for (char c : g->gainLabel(st)) { lbl += c; if (c == '%') { lbl += '%'; } }   // as format string
+                bool locked = autoGain;
+                if (locked) { style::beginDisabled(); }
+                ImGui::SetNextItemWidth(w);
+                if (ImGui::SliderInt(CONCAT("##_inst_rf_gain_", name), &st, 0, g->gainStepCount() - 1, lbl.c_str())) { g->setGainStep(st); }
+                if (locked) { style::endDisabled(); }
+                if (locked) { tw::TextDisabled("%s", ui_text::T("Set by the auto RF gain")); }
+            }
+            else if (g) { tw::TextDisabled("(hardware AGC on / not running)"); }
+            else {
+                // sources without gain interface: their own settings (gain controls there)
+                sigpath::sourceManager.showSelectedMenu();
+            }
+            ImGui::Spacing();
+            instHeader(ui_text::T("AFC & level"), w);
+            drawAfcGain(w, meas.get());
         }
         ImGui::End();
     }
@@ -5124,15 +5184,21 @@ private:
         if (!ImGui::BeginPopupModal(title.c_str(), &open)) { return; }
         if (settingsCloseReq.exchange(false)) { ImGui::CloseCurrentPopup(); }
         // pages short enough for the dialog without scrolling (also at 1366 x 768)
-        static const char* pages[] = { "Display & operation", "Spectrum & waterfall", "SDR", "Calibration & reference",
-                                       "Audio & recording", "Logging & report", "Limits & alarms", "Modules",
-                                       "Duplex tables", "Name lists", "Decoder / NETSYMS" };
+        // in groups: the device, the measurement, the application (TETRA), rarely needed
+        static const char* pages[] = { "Display & operation", "Spectrum & waterfall", "SDR", "Audio & recording", "Station & time",
+                                       "Calibration & reference", "Limits & alarms", "Logging & report",
+                                       "Duplex tables", "Name lists", "Decoder / NETSYMS",
+                                       "Modules" };
+        static const struct { int first; const char* title; } groups[] = { { 0, "Device" }, { 5, "Measurement" }, { 8, "Application TETRA" }, { 11, "Advanced" } };
         const int nPages = (int)(sizeof(pages) / sizeof(pages[0]));
         float navW = (std::max)(190.0f * style::uiScale, ImGui::GetFontSize() * 14.0f);
         ImGui::BeginChild(CONCAT("##_inst_set_nav_", name), ImVec2(navW, 0), true);
         for (int i = 0; i < nPages; i++) {
-            if (i == 0) { ImGui::TextDisabled("%s", ui_text::T("Device")); }
-            if (i == 8) { ImGui::Spacing(); ImGui::TextDisabled("%s", ui_text::T("Application TETRA")); }
+            for (const auto& g : groups) {
+                if (g.first != i) { continue; }
+                if (i > 0) { ImGui::Spacing(); }
+                ImGui::TextDisabled("%s", ui_text::T(g.title));
+            }
             if (ImGui::Selectable(ui_text::L(pages[i], std::string("_inst_setp_") + std::to_string(i) + name).c_str(), settingsPage == i)) { settingsPage = i; }
         }
         ImGui::EndChild();
@@ -5166,22 +5232,33 @@ private:
             ImGui::PopStyleVar();
             break;
         case 2:
-            coreSection("Source", "SDR source", true);
-            coreSection(nullptr, "AFC & level", true);
-            drawAfcGain(w, m);   // includes the SDR advice line
+            // the SDR itself: source, its own settings, IQ correction, offset,
+            // decimation; gain, AFC and level are in the RF / Gain window
+            coreSection(nullptr, "SDR source", true);
+            sourcemenu::drawSelect();
+            sigpath::sourceManager.showSelectedMenu();
+            sourcemenu::drawFrontEnd();
             break;
         case 3:
-            // settings only; the live values are in the Measure view
-            coreSection(nullptr, "Calibration & reference", true);
-            drawLevelCal(this, w);
-            drawFreqRefRow(this, w);
-            drawCalibrateRow(this, m);
-            break;
-        case 4:
             coreSection("Sinks", "Audio output", true);
             if (gui::menu.entryInstance("Recorder")) { coreSection("Recorder", "Recording", true); }
             break;
+        case 4:
+            coreSection(nullptr, "Operator and time correction", true);
+            sourcemenu::drawStation();
+            break;
         case 5:
+            // settings only; the live values are in Measure, "Calibrate SDR" in Alignment
+            coreSection(nullptr, "Calibration & reference", true);
+            drawLevelCal(this, w);
+            drawFreqRefRow(this, w);
+            break;
+        case 6:
+            drawAlarms(w);
+            ImGui::Separator();
+            tw::TextDisabled("ACP limits and the burst time mask are set in their views (Measure).");
+            break;
+        case 7:
             tw::Text("Log folder:");
             if (logFolder.render("##_inst_logdir_" + name) && logFolder.pathIsValid()) {
                 config.acquire();
@@ -5191,12 +5268,6 @@ private:
             ImGui::Separator();
             drawReport(w);
             break;
-        case 6:
-            drawAlarms(w);
-            ImGui::Separator();
-            tw::TextDisabled("ACP limits and the burst time mask are set in their views (Measure).");
-            break;
-        case 7: drawModulesPage(); break;
         case 8:
             {
                 // the only difference between ETSI and amateur radio operation
@@ -5221,6 +5292,7 @@ private:
             tw::TextDisabled("Streams the demodulated symbols over UDP to an external decoder.\nWhile active, the built-in decoder and all measurements that need it are off.");
             drawNetsyms(w);
             break;
+        case 11: drawModulesPage(); break;
         default: break;
         }
         ImGui::EndChild();
@@ -5307,7 +5379,10 @@ private:
         return buf;
     }
 
-    void drawCellDetails(float menuWidth) {
+    // part 0: both sections as tree nodes (classic layout); part 1 only the cell
+    // parameters, part 2 only the network broadcast (instrument view, one page
+    // each, the neighbour cells paged)
+    void drawCellDetails(float menuWidth, int part = 0) {
         const tetra_display_state* d = osmotetradecoder.getDisplay();
         if (!d) { return; }
         ImVec4 val = tc::val();
@@ -5322,7 +5397,7 @@ private:
         };
         ImGuiTableFlags tf = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg;
 
-        if (ImGui::TreeNode(CONCAT("Cell parameters (SYNC / SYSINFO)##_tetra_cellp_", name))) {
+        if (part == 1 || (part == 0 && ImGui::TreeNode(CONCAT("Cell parameters (SYNC / SYSINFO)##_tetra_cellp_", name)))) {
             if (!d->sync_valid && !d->sysinfo_valid) { tw::TextDisabled("no SYNC / SYSINFO received yet"); }
             else if (ImGui::BeginTable(CONCAT("##_tetra_cellt_", name), 2, tf)) {
                 static const float offKHz[4] = { 0.0f, 6.25f, -6.25f, 12.5f };
@@ -5362,10 +5437,10 @@ private:
                 }
                 ImGui::EndTable();
             }
-            ImGui::TreePop();
+            if (part == 0) { ImGui::TreePop(); }
         }
 
-        if (ImGui::TreeNode(CONCAT("Network broadcast & neighbour cells##_tetra_nb_", name))) {
+        if (part == 2 || (part == 0 && ImGui::TreeNode(CONCAT("Network broadcast & neighbour cells##_tetra_nb_", name)))) {
             int64_t now = (int64_t)time(nullptr);
             if (!d->nwrk_count) {
                 tw::TextDisabled("no D-NWRK-BROADCAST received yet");
@@ -5393,6 +5468,10 @@ private:
                 }
                 if (d->n_neigh > 0) {
                     tw::Text("Neighbour cells: %d", d->n_neigh);
+                    int nN = (std::min)(d->n_neigh, 16);
+                    const std::string pgId = "nb" + name;
+                    ListPage lp = part == 2 ? listPage(pgId, nN, listRowsFit(ImGui::GetContentRegionAvail().y, nN, false)) : ListPage{ 0, nN };
+                    if (part == 2) { pageBar(pgId, lp, true); }
                     if (ImGui::BeginTable(CONCAT("##_tetra_neigh_", name), 7, tf | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable)) {
                         ImGui::TableSetupColumn("Cell");
                         ImGui::TableSetupColumn("DL MHz");
@@ -5402,7 +5481,7 @@ private:
                         ImGui::TableSetupColumn("Age");
                         ImGui::TableSetupColumn("");
                         ImGui::TableHeadersRow();
-                        for (int i = 0; i < d->n_neigh && i < 16; i++) {
+                        for (int i = lp.first; i < lp.first + lp.count; i++) {
                             const auto& n = d->neigh[i];
                             int band = n.has_ext ? n.band : d->freq_band;
                             int off = n.has_ext ? n.offset : d->freq_offset;
@@ -5433,14 +5512,16 @@ private:
                             }
                         }
                         ImGui::EndTable();
+                        if (part == 2) { pageWheel(pgId, lp); }
                     }
                 }
             }
-            ImGui::TreePop();
+            if (part == 0) { ImGui::TreePop(); }
         }
     }
 
-    void drawNetworkBody(float menuWidth) {
+    // details: with the two sections of drawCellDetails (classic layout, strip)
+    void drawNetworkBody(float menuWidth, bool details = true) {
         TetraDemodulatorModule* _this = this;
         ImGui::BoxIndicator(ImGui::GetFontSize()*2, _this->symbolExtractor.sync ? IM_COL32(5, 230, 5, 255) : IM_COL32(230, 5, 5, 255));
         tw::SameText(" Sync");
@@ -5568,7 +5649,7 @@ private:
         if(dec_st != 2) {
             style::endDisabled();
         }
-        drawCellDetails(menuWidth);
+        if (details) { drawCellDetails(menuWidth); }
     }
 
     // ---------------- TX analysis (spectrum, adjacent channel power) ----------------
@@ -7317,9 +7398,11 @@ private:
     int instMainCur = -1;
     int instWorst = 0;            // worst assessment of the last drawn table (message line)
     std::string instWorstText;
-    bool settingsOpen = false, cellDetailsOpen = false;
+    bool settingsOpen = false;
     int settingsPage = 0;
-    bool eventsOpen = false;
+    // main area of Monitor / Measure: 0 the view, 1 cell details, 2 events (softkeys)
+    int instPage = 0;
+    int cellSubPage = 0;     // cell details: 0 cell, 1 cell parameters, 2 network broadcast, 3 CRC (narrow)
     bool rfOpen = false;     // RF / Gain window (instrument UI)
     bool instLeftReg = false;   // content column registered as left panel
     int instViewSeen = -1;      // mode*100+view last seen (an analysis starts with its view)

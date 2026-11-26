@@ -346,10 +346,10 @@ namespace sourcemenu {
         return open;
     }
 
-    void draw(void* ctx) {
+    // the parts of the menu, drawn one after the other by draw(); the TETRA
+    // instrument view shows them on different settings pages
+    void drawSelect() {
         float itemWidth = ImGui::GetContentRegionAvail().x;
-        float lineHeight = ImGui::GetTextLineHeightWithSpacing();
-        float spacing = lineHeight - ImGui::GetTextLineHeight();
         bool running = gui::mainWindow.sdrIsRunning();
 
         if (running) { style::beginDisabled(); }
@@ -365,8 +365,13 @@ namespace sourcemenu {
         }
 
         if (running) { style::endDisabled(); }
+    }
 
-        sigpath::sourceManager.showSelectedMenu();
+    void drawFrontEnd() {
+        float itemWidth = ImGui::GetContentRegionAvail().x;
+        float lineHeight = ImGui::GetTextLineHeightWithSpacing();
+        float spacing = lineHeight - ImGui::GetTextLineHeight();
+        bool running = gui::mainWindow.sdrIsRunning();
 
         if (ImGui::Checkbox("IQ Correction##_sdrpp_iq_corr", &iqCorrection)) {
             sigpath::iqFrontEnd.setDCBlocking(iqCorrection);
@@ -442,7 +447,9 @@ namespace sourcemenu {
             core::configManager.release(true);
         }
         if (running) { style::endDisabled(); }
+    }
 
+    void drawStation() {
         ImGui::Text("Operator Callsign");
         ImGui::SameLine();
         ImGui::FillWidth();
@@ -494,5 +501,12 @@ namespace sourcemenu {
             core::configManager.conf["secondsAdjustment"] = sigpath::iqFrontEnd.secondsAdjustment;
             core::configManager.release(true);
         }
+    }
+
+    void draw(void* ctx) {
+        drawSelect();
+        sigpath::sourceManager.showSelectedMenu();
+        drawFrontEnd();
+        drawStation();
     }
 }

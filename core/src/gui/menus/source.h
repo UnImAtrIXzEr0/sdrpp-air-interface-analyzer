@@ -7,6 +7,11 @@
 namespace sourcemenu {
     void init();
     void draw(void* ctx);
+    // parts of draw(), in this order: source selection, (menu of the source
+    // module), IQ correction / offset / decimation, operator and time correction
+    void drawSelect();
+    void drawFrontEnd();
+    void drawStation();
 
     // Sources hidden from the source list (config "hiddenSources"); the source
     // in use is always shown. Managed in the Module Manager.
