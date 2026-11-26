@@ -667,7 +667,7 @@ def test_instrument_ui():
         if not st().get("menuDisabled"):
             stats.test_fail("test_instrument_ui", "SDR menu still available in the instrument UI")
             return False
-        for page in range(9):
+        for page in range(11):
             ctx.module_cmd("TETRA Analyzer", "inst", "settings %d" % page)
             ctx.sleep(0.6)
         ctx.module_cmd("TETRA Analyzer", "inst", "settings -1")
@@ -774,7 +774,7 @@ def test_instrument_ui():
         if not m or m.get("rx_state") != 2:
             stats.test_fail("test_instrument_ui", f"decoder not locked after the UI run: {m}")
             return False
-    stats.test_pass("test_instrument_ui", "4 modes, 7 views, EN/DE, frame work with module view, waterfall back, 9 settings pages, RF window, drive map with tiles, saved map and map image, no SDR menu, classic and back")
+    stats.test_pass("test_instrument_ui", "4 modes, 7 views, EN/DE, frame work with module view, waterfall back, 11 settings pages, RF window, drive map with tiles, saved map and map image, no SDR menu, classic and back")
     return True
 
 

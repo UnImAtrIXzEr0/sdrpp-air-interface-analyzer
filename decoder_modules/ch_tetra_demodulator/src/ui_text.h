@@ -168,7 +168,7 @@ namespace ui_text {
             { "Device", "Gerät" },
             { "Application TETRA", "Applikation TETRA" },
             { "Display & operation", "Anzeige & Bedienung" },
-            { "SDR & calibration", "SDR & Kalibrierung" },
+            { "Spectrum & waterfall", "Spektrum & Wasserfall" },
             { "Audio & recording", "Audio & Aufnahme" },
             { "Modules", "Module" },
             { "Module manager", "Modulverwaltung" },
