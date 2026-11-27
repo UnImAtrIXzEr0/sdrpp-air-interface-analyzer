@@ -41,7 +41,7 @@
     "ScrollbarGrab": "#22374DFF",
     "ScrollbarGrabHovered": "#2A4560FF",
     "ScrollbarGrabActive": "#3E6F9CFF",
-    "PlotLines": "#5AAEEAFF",
+    "PlotLines": "#F2C46BFF",
     "PlotLinesHovered": "#E3A33BFF",
     "PlotHistogram": "#5AAEEAFF",
     "PlotHistogramHovered": "#E3A33BFF",
@@ -69,8 +69,8 @@
     "ConstellationRmsZone": "#5AAEEA2E",
     "ConstellationRmsRing": "#5AAEEAB0",
     "ConstellationMarker": "#9CCBFFFF",
-    "ConstellationDotGood": "#4CD07DFF",
-    "ConstellationDotBad": "#E3A33BFF",
+    "ConstellationDotGood": "#F2C46BFF",
+    "ConstellationDotBad": "#FF5C5CFF",
     "ConstellationText": "#9DB0C3FF",
     "VfoBandwidth": "#E3A33B30",
     "VfoBandwidthEdge": "#E3A33BC0",
@@ -84,5 +84,8 @@
     "SpectrumGrid": "#1C3048FF",
     "SpectrumFillTop": "#E3A33B59",
     "SpectrumFillBottom": "#E3A33B00",
-    "WaterfallColorMap": "Night blue (ember)"
+    "WaterfallColorMap": "Night blue (ember)",
+    "ConstellationIdeal": "#5AAEEAFF",
+    "ConstellationLegendGood": "#5FD08AFF",
+    "ConstellationLegendBad": "#FF5C5CFF"
 }

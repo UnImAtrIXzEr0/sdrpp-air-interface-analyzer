@@ -69,8 +69,8 @@
     "ConstellationRmsZone": "#5AAEEA2E",
     "ConstellationRmsRing": "#5AAEEAB0",
     "ConstellationMarker": "#9CCBFFFF",
-    "ConstellationDotGood": "#4CD07DFF",
-    "ConstellationDotBad": "#E3A33BFF",
+    "ConstellationDotGood": "#BFE2FFFF",
+    "ConstellationDotBad": "#FF6B6BFF",
     "ConstellationText": "#9DB0C3FF",
     "VfoBandwidth": "#5AAEEA40",
     "VfoBandwidthEdge": "#5AAEEAD0",
@@ -84,5 +84,8 @@
     "SpectrumGrid": "#1C3048FF",
     "SpectrumFillTop": "#5AAEEA66",
     "SpectrumFillBottom": "#5AAEEA00",
-    "WaterfallColorMap": "Night blue (deep)"
+    "WaterfallColorMap": "Night blue (deep)",
+    "ConstellationIdeal": "#E3A33BFF",
+    "ConstellationLegendGood": "#5FD08AFF",
+    "ConstellationLegendBad": "#FF6B6BFF"
 }

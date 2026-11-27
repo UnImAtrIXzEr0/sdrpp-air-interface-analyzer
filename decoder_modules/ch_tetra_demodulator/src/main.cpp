@@ -5324,6 +5324,9 @@ private:
             take("ConstellationDotGood", p.dotGood);
             take("ConstellationDotBad", p.dotBad);
             take("ConstellationText", p.text);
+            take("ConstellationIdeal", p.ideal);
+            take("ConstellationLegendGood", p.legendGood);
+            take("ConstellationLegendBad", p.legendBad);
             constView.pal = p;
         }
         constView.draw(CONCAT("##_tetra_cview_", name), ImVec2(width, width), constellation8, good, m.symSync);
@@ -5750,7 +5753,7 @@ private:
                 double w = TxMath::rcWeight(f);
                 double db = w > 1e-12 ? r.inbandDensityDb + 10.0 * std::log10(w) : bot;
                 ImVec2 pt(X(f), Y(db));
-                if (have) { dl->AddLine(prev, pt, pal.dotGood, 1.0f); }
+                if (have) { dl->AddLine(prev, pt, pal.ideal ? pal.ideal : pal.dotGood, 1.0f); }
                 prev = pt;
                 have = true;
             }

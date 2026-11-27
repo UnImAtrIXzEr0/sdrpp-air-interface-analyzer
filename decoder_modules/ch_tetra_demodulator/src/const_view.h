@@ -28,6 +28,9 @@ public:
         ImU32 dotGood = IM_COL32(40, 235, 90, 255);
         ImU32 dotBad = IM_COL32(255, 220, 0, 255);
         ImU32 text = IM_COL32(150, 170, 200, 255);
+        ImU32 ideal = 0;      // reference curves (ideal TX spectrum); 0 = dotGood
+        ImU32 legendGood = 0; // legend text within / above the limit; 0 = dot colour
+        ImU32 legendBad = 0;
     };
     Palette pal;
     float legendEvm = NAN;           // EVM the colour is judged by (%), NAN: no value in the legend
@@ -112,7 +115,7 @@ public:
         }
         const char* lg = lgb;
         dl->AddText(ImVec2(bb.Min.x + 6, bb.Max.y - ImGui::GetFontSize() - 4),
-                    (good && sync) ? pal.dotGood : pal.dotBad, lg);
+                    (good && sync) ? (pal.legendGood ? pal.legendGood : pal.dotGood) : (pal.legendBad ? pal.legendBad : pal.dotBad), lg);
         dl->AddText(ImVec2(bb.Min.x + 6, bb.Min.y + 4), pal.text, "circles: ETSI 10 % rms / 30 % peak");
     }
 
